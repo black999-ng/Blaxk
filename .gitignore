@@ -1,0 +1,26 @@
+# Session data
+sessions/
+auth_info_baileys/
+
+# Node modules
+node_modules/
+
+# Environment variables
+.env
+
+# Logs
+*.log
+
+# OS files
+.DS_Store
+Thumbs.db
+nul
+
+# Local AI tooling
+.trae/documents/
+.claude/
+ 
+# Project data folders
+database/
+downloads/
+docs/

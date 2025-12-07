@@ -1,0 +1,52 @@
+{
+  "name": "Blaxk_TCF",
+  "version": "1.0.0",
+  "description": "Almighty Blaxk's Gemini - Savage Nigerian Tech AI WhatsApp Bot",
+  "main": "index.js",
+  "engines": {
+    "node": ">=18.0.0",
+    "npm": ">=9.0.0"
+  },
+  "scripts": {
+    "start": "node index.js",
+    "dev": "node index.js",
+    "pm2": "npx pm2 start ecosystem.config.js --env production",
+    "logs": "npx pm2 logs Blaxk_TCF",
+    "stop": "npx pm2 stop Blaxk_TCF",
+    "shutdown": "npx pm2 stop Blaxk_TCF && npx pm2 delete Blaxk_TCF && npx pm2 kill",
+    "clean": "rm -rf sessions auth_info_baileys 2>/dev/null || echo 'Cleaned up sessions'",
+    "test:nsfw": "node scripts/nsfw-test.js"
+  },
+  "keywords": [
+    "whatsapp",
+    "bot",
+    "gemini",
+    "ai",
+    "chatbot",
+    "blaxk",
+    "nigerian"
+  ],
+  "author": "Blaxk",
+  "license": "ISC",
+  "packageManager": "pnpm@10.23.0",
+  "dependencies": {
+    "@distube/ytdl-core": "^4.16.12",
+    "@google/genai": "^1.30.0",
+    "@whiskeysockets/baileys": "7.0.0-rc.9",
+    "axios": "^1.6.0",
+    "cheerio": "^1.0.0-rc.12",
+    "dotenv": "^17.2.3",
+    "node-fetch": "^3.3.2",
+    "pino": "^10.1.0",
+    "qrcode-terminal": "^0.12.0",
+    "sharp": "^0.34.5",
+    "wa-sticker-formatter": "^4.4.4",
+    "yt-search": "^2.13.1"
+  },
+  "devDependencies": {
+    "pm2": "^5.3.0"
+  },
+  "optionalDependencies": {
+    "pm2": "^5.3.0"
+  }
+}

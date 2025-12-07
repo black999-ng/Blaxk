@@ -1,0 +1,462 @@
+================================================================================
+                    WHATSAPP BOT - SONG DOWNLOAD LOGIC
+================================================================================
+
+This file contains all the song-related code combined from multiple files.
+Each section is labeled with the file location for easy reference.
+
+================================================================================
+FILE: /features/songs.js
+================================================================================
+
+const yts = require('yt-search');
+const ytmp3 = require('../lib/ytmp3');
+const fs = require('fs');
+const path = require('path');
+
+// Store user search sessions
+const searchSessions = new Map();
+
+/**
+ * Search YouTube for songs
+ * @param {string} query - Search query
+ * @param {number} limit - Number of results (default 5)
+ * @returns {Promise<Array>} Search results
+ */
+async function searchYouTube(query, limit = 5) {
+    try {
+        const results = await yts(query);
+        return results.videos.slice(0, limit);
+    } catch (error) {
+        console.error('YouTube search error:', error);
+        throw new Error('Failed to search YouTube');
+    }
+}
+
+/**
+ * Format search results for display
+ * @param {Array} results - Search results
+ * @param {string} query - Original search query
+ * @returns {string} Formatted message
+ */
+function formatSearchResults(results, query) {
+    let message = '🎵 *YOUTUBE SONG SEARCH*\n\n';
+    message += `📝 Query: "${query}"\n`;
+    message += `📊 Found ${results.length} results\n\n`;
+    message += '━━━━━━━━━━━━━━━━━━━━\n\n';
+
+    results.slice(0, 5).forEach((video, index) => {
+        const duration = formatDuration(video.timestamp);
+        message += `*${index + 1}.* ${video.title}\n`;
+        message += `   👤 ${video.author.name}\n`;
+        message += `   ⏱️ ${duration}\n`;
+        message += `   👁️ ${formatViews(video.views)}\n\n`;
+    });
+
+    message += '━━━━━━━━━━━━━━━━━━━━\n\n';
+    message += '💡 *Reply with a number (1-5) to download that song*';
+
+    return message;
+}
+
+/**
+ * Download YouTube audio
+ * @param {string} url - YouTube video URL
+ * @param {string} title - Video title (for filename)
+ * @returns {Promise<string>} Path to downloaded file
+ */
+async function downloadAudio(url, title) {
+    try {
+        console.log(`🎵 downloadAudio called with URL: ${url}, Title: ${title}`);
+
+        if (!url) {
+            throw new Error('URL is undefined or empty');
+        }
+
+        // Normalize YouTube URL to use 'www.' and convert youtu.be short links
+        if (url.startsWith('https://youtube.com/watch')) {
+            url = url.replace('https://youtube.com/', 'https://www.youtube.com/');
+        } else if (url.startsWith('https://youtu.be/')) {
+            const videoId = url.split('https://youtu.be/')[1].split('?')[0];
+            url = `https://www.youtube.com/watch?v=${videoId}`;
+        }
+
+        const downloadsDir = path.join(__dirname, '..', 'downloads');
+        if (!fs.existsSync(downloadsDir)) {
+            fs.mkdirSync(downloadsDir, { recursive: true });
+        }
+
+        // Sanitize filename
+        const sanitizedTitle = title
+            .replace(/[^a-zA-Z0-9\s-]/g, '')
+            .replace(/\s+/g, '_')
+            .substring(0, 50);
+
+        const outputPath = path.join(downloadsDir, `${sanitizedTitle}.mp3`);
+
+        // Use yt-dlp directly (primary method - it's reliable)
+        console.log(`🎵 Downloading with yt-dlp: ${url}`);
+        return await new Promise((resolve, reject) => {
+            const { exec } = require('child_process');
+            const ytDlpCmd = `yt-dlp -x --audio-format mp3 --audio-quality 192 -o "${outputPath}" "${url}"`;
+            console.log(`🎵 Executing: ${ytDlpCmd}`);
+            
+            exec(ytDlpCmd, { maxBuffer: 10 * 1024 * 1024 }, (err, stdout, stderr) => {
+                if (err) {
+                    console.error('❌ yt-dlp download failed:', stderr || err.message);
+                    return reject(new Error(`yt-dlp failed: ${stderr || err.message}`));
+                }
+                console.log(`✅ Download successful with yt-dlp: ${outputPath}`);
+                resolve(outputPath);
+            });
+        });
+    } catch (error) {
+        console.error('Download error:', error);
+        throw new Error('Failed to download audio');
+    }
+}
+
+/**
+ * Store search session for a user
+ * @param {string} userId - User JID
+ * @param {Array} results - Search results
+ * @param {number} expiryMs - Session expiry time in milliseconds (default: 3 minutes)
+ */
+function storeSearchSession(userId, results, expiryMs = 3 * 60 * 1000) {
+    searchSessions.set(userId, {
+        results: results,
+        timestamp: Date.now()
+    });
+
+    // Auto-clear session after specified time (default 3 minutes)
+    setTimeout(() => {
+        searchSessions.delete(userId);
+        console.log(`🎵 Session expired and cleared: ${userId}`);
+    }, expiryMs);
+}
+
+/**
+ * Get search session for a user
+ * @param {string} userId - User JID
+ * @returns {Object|null} Search session or null
+ */
+function getSearchSession(userId) {
+    return searchSessions.get(userId) || null;
+}
+
+/**
+ * Clear search session for a user
+ * @param {string} userId - User JID
+ */
+function clearSearchSession(userId) {
+    searchSessions.delete(userId);
+}
+
+/**
+ * Get all active sessions (for debugging)
+ */
+function getAllSessions() {
+    return Array.from(searchSessions.keys());
+}
+
+/**
+ * Format duration string
+ */
+function formatDuration(timestamp) {
+    return timestamp || 'Unknown';
+}
+
+/**
+ * Format view count
+ */
+function formatViews(views) {
+    if (views >= 1000000) {
+        return `${(views / 1000000).toFixed(1)}M views`;
+    } else if (views >= 1000) {
+        return `${(views / 1000).toFixed(1)}K views`;
+    }
+    return `${views} views`;
+}
+
+/**
+ * Format download progress message
+ */
+function formatDownloadMessage(title) {
+    return `🎵 *DOWNLOADING SONG*\n\n` +
+           `📝 Title: ${title}\n\n` +
+           `⏳ Please wait, downloading audio...\n` +
+           `🎧 Converting to MP3 format...`;
+}
+
+module.exports = {
+    searchYouTube,
+    formatSearchResults,
+    downloadAudio,
+    storeSearchSession,
+    getSearchSession,
+    clearSearchSession,
+    formatDownloadMessage,
+    getAllSessions
+};
+
+
+================================================================================
+FILE: /lib/ytmp3.js
+================================================================================
+
+const playdl = require('play-dl');
+const ffmpeg = require("fluent-ffmpeg");
+const ffmpegPath = require("@ffmpeg-installer/ffmpeg").path;
+ffmpeg.setFfmpegPath(ffmpegPath);
+const fs = require("fs");
+const path = require("path");
+
+/**
+ * Download YouTube video as MP3 audio using play-dl
+ * @param {string} url - YouTube video URL
+ * @param {string} output - Output file path (default: audio.mp3)
+ * @returns {Promise<string>} Path to downloaded audio file
+ */
+async function ytmp3(url, output = "audio.mp3") {
+    return new Promise(async (resolve, reject) => {
+        try {
+            // Ensure output directory exists
+            const dir = path.dirname(output);
+            if (dir && !fs.existsSync(dir)) {
+                fs.mkdirSync(dir, { recursive: true });
+            }
+
+            console.log(`🎵 Starting play-dl download from: ${url}`);
+
+            // Validate and get YouTube info first
+            if (!url) {
+                console.log("❌ ytmp3 error: URL is undefined");
+                return reject(new Error("Invalid YouTube URL: undefined"));
+            }
+            const isValid = await playdl.validate(url);
+            console.log(`🎵 URL validation result: ${isValid}`);
+
+            if (!isValid) {
+                return reject(new Error(`Invalid YouTube URL: ${url}`));
+            }
+
+            // Get stream from YouTube
+            console.log(`🎵 Calling playdl.stream with URL: ${url}`);
+            const stream = await playdl.stream(url, { quality: 0 });
+
+            if (!stream) {
+                console.log("❌ ytmp3 error: Stream is null/undefined");
+                return reject(new Error("Could not get stream from YouTube"));
+            }
+            
+            if (!stream.stream) {
+                console.log("❌ ytmp3 error: Stream.stream is null/undefined");
+                return reject(new Error("Could not get stream from YouTube"));
+            }
+
+            console.log(`🎵 Stream obtained, starting FFmpeg conversion...`);
+
+            ffmpeg(stream.stream)
+                .audioBitrate(192)
+                .audioChannels(2)
+                .audioFrequency(44100)
+                .format('mp3')
+                .save(output)
+                .on("start", (commandLine) => {
+                    console.log(`🎵 FFmpeg started`);
+                })
+                .on("progress", (progress) => {
+                    if (progress && progress.percent) {
+                        console.log(`🎵 Processing: ${Math.round(progress.percent)}%`);
+                    }
+                })
+                .on("end", () => {
+                    console.log(`✅ Download completed: ${output}`);
+                    resolve(output);
+                })
+                .on("error", (err) => {
+                    console.error(`❌ FFmpeg error: ${err.message}`);
+                    reject(new Error(`FFmpeg error: ${err.message}`));
+                });
+        } catch (error) {
+            console.error(`❌ ytmp3 error: ${error.message}`);
+            reject(error);
+        }
+    });
+}
+
+module.exports = ytmp3;
+
+
+================================================================================
+FILE: /index.js - RELEVANT SONG HANDLER SECTIONS
+================================================================================
+
+// At top of file (line 29):
+const songs = require('./features/songs');
+
+// Song Download Command Handler (around line 1417-1480):
+registerCommand('song', 'Search and download songs from YouTube', async (sock, msg, args) => {
+    try {
+        const query = args.join(' ');
+        
+        if (!query) {
+            return sock.sendMessage(chatId, {
+                text: `🎵 *SONG DOWNLOADER*\n\n` +
+                      `*Usage:* ${config.prefix}song <song name>\n\n` +
+                      `*Examples:*\n` +
+                      `${config.prefix}song smooth criminal\n` +
+                      `${config.prefix}song shape of you\n` +
+                      `${config.prefix}song bohemian rhapsody\n\n` +
+                      `⏱️ *Session expires in 3 minutes*`
+            });
+        }
+
+        try {
+            // Search for top 5 songs
+            const results = await songs.searchYouTube(query, 5);
+
+            // Check if search returned results
+            if (!results || results.length === 0) {
+                return sock.sendMessage(chatId, {
+                    text: `❌ No songs found for: *${query}*\n\n💡 Try a different search term`
+                });
+            }
+
+            const storageKeySong = `${chatIdStore}:${userId}`;
+            songs.storeSearchSession(storageKeySong, results, 3 * 60 * 1000); // 3 minute session
+
+            console.log(`✅ 🎵 Song Session Stored - Key: ${storageKeySong}, Results Count: ${results.length}`);
+
+            const resultsText = songs.formatSearchResults(results, query);
+
+            const searchMsg = await sock.sendMessage(chatId, { text: resultsText });
+
+            // Auto-delete search message after 5 minutes
+            setTimeout(async () => {
+                try {
+                    await sock.sendMessage(chatId, {
+                        delete: searchMsg.key
+                    });
+                    console.log(`🎵 Search message auto-deleted: ${storageKeySong}`);
+                } catch (deleteError) {
+                    console.log('Could not auto-delete search message');
+                }
+            }, 5 * 60 * 1000);
+
+        } catch (error) {
+            console.error('❌ Song search error:', error);
+            sock.sendMessage(chatId, {
+                text: `❌ Failed to search for songs!\n\n` +
+                      `Error: ${error.message}`
+            });
+        }
+    } catch (error) {
+        console.error(error);
+    }
+});
+
+// Song Reply Handler (around line 2647-2710):
+// Check for song download number reply
+// userId and chatId already defined above
+
+// Only check for song/video replies if message does NOT start with prefix
+if (!messageText.startsWith(config.prefix)) {
+    // Check for song download reply
+    const storageKeySongReply = `${chatId}:${userId}`;
+    const songSession = songs.getSearchSession(storageKeySongReply);
+    
+    console.log(`\n🎵========== SONG REPLY CHECK ==========`);
+    console.log(`🎵 Message: "${messageText}"`);
+    console.log(`🎵 ChatID: ${chatId}`);
+    console.log(`🎵 UserID: ${userId}`);
+    console.log(`🎵 Storage Key: ${storageKeySongReply}`);
+    console.log(`🎵 Has Session: ${!!songSession}`);
+    console.log(`🎵 All active sessions:`, songs.getAllSessions());
+    console.log(`🎵=====================================\n`);
+    
+    if (songSession) {
+        const trimmed = messageText.trim();
+        // Match a number at the start of the reply (e.g., '3', '3-', '3.')
+        const match = trimmed.match(/^(\d+)/);
+        const num = match ? parseInt(match[1]) : NaN;
+
+        console.log(`🎵 Song Reply - Matched: ${match ? match[1] : 'none'}, Number: ${num}, Results Count: ${songSession.results.length}`);
+
+        if (!isNaN(num) && num >= 1 && num <= songSession.results.length) {
+            const selectedVideo = songSession.results[num - 1];
+
+            console.log(`🎵 Song Selected - Title: ${selectedVideo.title}, URL: ${selectedVideo.url}`);
+
+            try {
+                // Show downloading status
+                await sock.sendMessage(chatId, {
+                    text: `📥 *Downloading...*\n\n🎵 ${selectedVideo.title}\n👤 ${selectedVideo.author.name}`
+                });
+
+                console.log('🎵 Selected video object:', selectedVideo);
+                let videoUrl = selectedVideo.url;
+                if (!videoUrl && selectedVideo.videoId) {
+                    videoUrl = `https://www.youtube.com/watch?v=${selectedVideo.videoId}`;
+                    console.log('🎵 Constructed video URL from videoId:', videoUrl);
+                }
+                if (!videoUrl) {
+                    throw new Error('No valid video URL found for selected video');
+                }
+                // Download the audio
+                const filePath = await songs.downloadAudio(videoUrl, selectedVideo.title);
+
+                console.log(`🎵 Download complete, file path: ${filePath}`);
+
+                // Send the audio file
+                const audioBuffer = fs.readFileSync(filePath);
+                await sock.sendMessage(chatId, {
+                    audio: audioBuffer,
+                    mimetype: 'audio/mpeg',
+                    fileName: path.basename(filePath),
+                    ptt: false
+                }, { quoted: msg });
+
+                await sock.sendMessage(chatId, {
+                    text: `✅ *Download Complete!*\n\n` +
+                          `🎵 ${selectedVideo.title}\n` +
+                          `👤 ${selectedVideo.author.name}`
+                });
+
+                // Clear session after successful download
+                songs.clearSearchSession(storageKeySongReply);
+
+            } catch (error) {
+                console.error('❌ Song download error:', error);
+                await sock.sendMessage(chatId, {
+                    text: `❌ *Download Failed!*\n\n` +
+                          `Error: ${error.message}\n\n` +
+                          `Please try again with another song.`
+                });
+            }
+        }
+    }
+}
+
+
+================================================================================
+END OF COMBINED CODE
+================================================================================
+
+CURRENT ISSUES:
+- play-dl is failing with "input: 'undefined'" error when calling stream()
+- Using yt-dlp as fallback via child_process exec()
+- Need to identify why play-dl.stream() receives undefined internally
+
+DEPENDENCIES REQUIRED:
+- yt-search (npm)
+- play-dl (npm)
+- fluent-ffmpeg (npm)
+- @ffmpeg-installer/ffmpeg (npm)
+- ffmpeg-static (npm) - optional backup
+- yt-dlp (binary/command-line tool)
+- child_process (Node.js built-in)
+- fs (Node.js built-in)
+- path (Node.js built-in)
+
+================================================================================
