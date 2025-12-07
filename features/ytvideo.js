@@ -1,5 +1,5 @@
 const yts = require('yt-search');
-const ytmp4 = require('../lib/ytmp4');
+// const ytmp4 = require('../lib/ytmp4'); // Disabled: YouTube video downloads not supported
 const fs = require('fs');
 const path = require('path');
 
@@ -55,26 +55,27 @@ function formatSearchResults(results, query) {
  * @returns {Promise<string>} Path to downloaded file
  */
 async function downloadVideo(url, title) {
-    try {
-        const downloadsDir = path.join(__dirname, '..', 'downloads');
-        if (!fs.existsSync(downloadsDir)) {
-            fs.mkdirSync(downloadsDir, { recursive: true });
-        }
+    throw new Error('Video downloads are disabled. Use features/yts.js for video search/info instead.');
+    // try {
+    //     const downloadsDir = path.join(__dirname, '..', 'downloads');
+    //     if (!fs.existsSync(downloadsDir)) {
+    //         fs.mkdirSync(downloadsDir, { recursive: true });
+    //     }
 
-        // Sanitize filename
-        const sanitizedTitle = title
-            .replace(/[^a-zA-Z0-9\s-]/g, '')
-            .replace(/\s+/g, '_')
-            .substring(0, 50);
+    //     // Sanitize filename
+    //     const sanitizedTitle = title
+    //         .replace(/[^a-zA-Z0-9\s-]/g, '')
+    //         .replace(/\s+/g, '_')
+    //         .substring(0, 50);
 
-        const outputPath = path.join(downloadsDir, `${sanitizedTitle}.mp4`);
+    //     const outputPath = path.join(downloadsDir, `${sanitizedTitle}.mp4`);
 
-        await ytmp4(url, outputPath);
-        return outputPath;
-    } catch (error) {
-        console.error('Download error:', error);
-        throw new Error('Failed to download video');
-    }
+    //     await ytmp4(url, outputPath);
+    //     return outputPath;
+    // } catch (error) {
+    //     console.error('Download error:', error);
+    //     throw new Error('Failed to download video');
+    // }
 }
 
 /**
