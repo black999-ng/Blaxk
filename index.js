@@ -126,8 +126,10 @@ const antiLinkSettings = new Map();
 const warnLimits = new Map();
 const warnCounts = new Map();
 const antiDeleteChats = new Map();
+const selfPingMessages = new Map(); // Store self-ping message keys for deletion
 let connectedAtMs = 0;
 const CONNECT_GRACE_MS = 3000;
+const SELF_PING_INTERVAL = 10 * 60 * 1000; // 10 minutes
 
 // Initialize auto view-once from .env
 if (process.env.AUTO_VIEW_ONCE === 'true') {
@@ -539,6 +541,38 @@ async function connectToWhatsApp(usePairingCode, sessionPath) {
             // Start message scheduler
             try {
                 scheduler.startScheduler(sock);
+            } catch {}
+
+            // Start self-ping system (10 minutes interval)
+            try {
+                const ownerJid = String(config.ownerNumber).replace(/[^0-9]/g, '') + '@s.whatsapp.net';
+                setInterval(async () => {
+                    try {
+                        // Send self-ping message
+                        const result = await sock.sendMessage(ownerJid, { text: '🔄 Self-ping: Bot is alive!' });
+                        
+                        // Store message key for deletion
+                        if (result && result.key) {
+                            selfPingMessages.set(ownerJid, result.key);
+                            
+                            // Delete after 2 seconds (no "You deleted this message" trace)
+                            setTimeout(async () => {
+                                try {
+                                    await sock.chatModify(
+                                        { delete: true, lastMessages: [result.key] },
+                                        ownerJid
+                                    );
+                                } catch (err) {
+                                    // Silently fail if deletion doesn't work
+                                }
+                            }, 2000);
+                        }
+                    } catch (err) {
+                        // Silently fail ping if error occurs
+                    }
+                }, SELF_PING_INTERVAL);
+                
+                console.log('⏰ Self-ping system started (10-minute interval)\n');
             } catch {}
 
             // Track last notified commit to prevent duplicate notifications
@@ -1798,6 +1832,58 @@ ${config.prefix}setvar <key> <value>
         await sock.sendMessage(msg.key.remoteJid, {
             text: `🏓 *Pong!*\n\n⚡ Response Time: ${ping}ms\n📊 Speed: ${ping < 100 ? 'Excellent' : ping < 300 ? 'Good' : 'Fair'}`
         }, { quoted: sentMsg });
+    });
+
+    registerCommand('ghostping', 'Mention all group members silently for announcements (group only)', async (sock, msg, args) => {
+        const jid = msg.key.remoteJid;
+        const isGroup = jid.endsWith('@g.us');
+        
+        if (!isGroup) {
+            await sock.sendMessage(jid, { text: '❌ Ghostping only works in groups!' });
+            return;
+        }
+
+        if (args.length === 0) {
+            await sock.sendMessage(jid, { 
+                text: `📢 *Ghostping Usage:*\n\n${config.prefix}ghostping <announcement message>\n\n*Example:*\n${config.prefix}ghostping Meeting in 5 minutes!\n\n✨ Mentions all members silently - no "You deleted this message" trace`
+            });
+            return;
+        }
+
+        try {
+            // Get group metadata
+            const groupMetadata = await sock.groupMetadata(jid);
+            const participants = groupMetadata.participants || [];
+            const announcement = args.join(' ');
+
+            // Create mention list for all participants
+            const mentions = participants.map(p => p.id);
+            
+            // Send message with mentions
+            const sentMsg = await sock.sendMessage(jid, {
+                text: `📢 *ANNOUNCEMENT*\n\n${announcement}`,
+                mentions: mentions
+            });
+
+            // Delete message immediately to leave no trace
+            if (sentMsg && sentMsg.key) {
+                setTimeout(async () => {
+                    try {
+                        await sock.chatModify(
+                            { delete: true, lastMessages: [sentMsg.key] },
+                            jid
+                        );
+                    } catch (err) {
+                        // Silently fail if deletion doesn't work
+                    }
+                }, 500);
+            }
+
+            console.log(`👻 Ghostping sent to ${participants.length} members in ${jid}`);
+        } catch (error) {
+            console.error('Ghostping error:', error);
+            await sock.sendMessage(jid, { text: `❌ Ghostping failed: ${error.message}` });
+        }
     });
 
     registerCommand('help', 'Show command details', async (sock, msg, args) => {
