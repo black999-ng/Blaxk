@@ -44,6 +44,27 @@ const registerApkCommand = require('./features/apk');
 const registerEmojimixCommand = require('./features/emojimix');
 const saveStatus = require('./lib/saveStatus');
 
+// Health check server for Render monitoring
+const express = require('express');
+const app = express();
+const PORT = process.env.PORT || 3000;
+
+let botStatus = 'initializing';
+
+// Health check endpoint for UptimeRobot / Render monitoring
+app.get('/health', (req, res) => {
+    res.status(200).json({ 
+        status: botStatus, 
+        timestamp: new Date().toISOString(),
+        uptime: process.uptime()
+    });
+});
+
+// Start HTTP server
+const server = app.listen(PORT, () => {
+    console.log(`🌐 Health check server running on port ${PORT}`);
+});
+
 // Bot Configuration from .env
 const config = {
     botMode: process.env.BOT_MODE || 'public',
@@ -462,6 +483,7 @@ async function connectToWhatsApp(usePairingCode, sessionPath) {
             // Reset reconnect attempts on successful connection
             reconnectAttempts = 0;
             connectedAtMs = Date.now();
+            botStatus = 'connected'; // Update health status
             console.log('✅ Connection successful!\n');
 
             // Auto-detect and set owner number from bot's login
