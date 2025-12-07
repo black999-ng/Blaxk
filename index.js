@@ -396,8 +396,36 @@ async function connectToWhatsApp(usePairingCode, sessionPath) {
     if (usePairingCode && !sock.authState.creds.registered) {
         let cleanNumber = (process.env.PAIR_NUMBER || '').replace(/[^0-9]/g, '');
         if (!cleanNumber) {
-            const phoneNumber = await question('\n📱 Enter your WhatsApp phone number:\n   (with country code, no + or spaces)\n   Example: 2349012345678\n\n   Number: ');
-            cleanNumber = phoneNumber.replace(/[^0-9]/g, '');
+            if (process.stdin.isTTY) {
+                // Interactive mode - ask for number
+                const phoneNumber = await question('\n📱 Enter your WhatsApp phone number:\n   (with country code, no + or spaces)\n   Example: 2349012345678\n\n   Number: ');
+                cleanNumber = phoneNumber.replace(/[^0-9]/g, '');
+            } else {
+                // Non-interactive mode - provide instructions
+                console.log('\n⚠️  PAIRING CODE AUTHENTICATION REQUIRES PHONE NUMBER\n');
+                console.log('📝 Please add your phone number to Render environment variables:\n');
+                console.log('   1. Go to your Render dashboard');
+                console.log('   2. Click your blaxk-bot service');
+                console.log('   3. Go to Settings → Environment');
+                console.log('   4. Add new variable:');
+                console.log('      Name: PAIR_NUMBER');
+                console.log('      Value: 2347089569192 (your WhatsApp number with country code)\n');
+                console.log('   5. Redeploy the service\n');
+                console.log('⏳ Waiting for PAIR_NUMBER environment variable...\n');
+                
+                // Wait for env variable to be set
+                await new Promise(resolve => {
+                    const checkInterval = setInterval(() => {
+                        const num = (process.env.PAIR_NUMBER || '').replace(/[^0-9]/g, '');
+                        if (num && num.length >= 10) {
+                            clearInterval(checkInterval);
+                            cleanNumber = num;
+                            console.log('✅ PAIR_NUMBER detected:', num);
+                            resolve();
+                        }
+                    }, 5000);
+                });
+            }
         }
 
         if (!cleanNumber || cleanNumber.length < 10) {
@@ -2957,9 +2985,10 @@ async function showMenu() {
     }
 
     if (isNonInteractive) {
-        const method = envAuthMethod === 'pair' ? 'pair' : 'qr';
+        const method = envAuthMethod === 'qr' ? 'qr' : 'pair';
         if (method === 'pair') {
             console.log('🔄 Starting Pairing Code authentication...\n');
+            console.log('📱 A pairing code will be displayed below.\n');
             return await connectToWhatsApp(true, sessionPath);
         } else {
             console.log('🔄 Starting QR Code authentication...\n');
