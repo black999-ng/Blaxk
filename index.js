@@ -533,6 +533,22 @@ async function connectToWhatsApp(usePairingCode, sessionPath) {
             console.log(`🔑 Bot Owner: ${botOwnNumber}\n`);
             console.log('💡 Bot is active and ready to respond to commands!\n');
 
+            // Initialize Gemini if enabled
+            try {
+                if (process.env.GEMINI_ENABLED === 'true') {
+                    const geminiReady = gemini.initializeGemini();
+                    if (geminiReady) {
+                        console.log('✅ Gemini API initialized and ready\n');
+                    } else {
+                        console.log('⚠️ Gemini API Key not set. Chatbot disabled.\n');
+                    }
+                } else {
+                    console.log('⚠️ Gemini disabled (GEMINI_ENABLED=false)\n');
+                }
+            } catch (err) {
+                console.error('⚠️ Gemini initialization error:', err.message, '\n');
+            }
+
             // Start presence loop if global presence is enabled
             try {
                 startPresenceLoop(sock);
@@ -2859,10 +2875,15 @@ ${config.prefix}setvar <key> <value>
                             await sock.sendPresenceUpdate('composing', chatId);
                             const response = await gemini.sendMessage(chatId, messageText, isGroup);
                             await sock.sendPresenceUpdate('paused', chatId);
+                            if (response && response.includes('❌')) {
+                                // Gemini error - log it for debugging
+                                console.error('⚠️ Gemini returned error:', response);
+                            }
                             await sock.sendMessage(chatId, { text: response }, { quoted: msg });
                             return; // Handled by chatbot
                         } catch (error) {
-                            console.error('❌ Chatbot error:', error);
+                            console.error('❌ Chatbot error:', error.message);
+                            console.error('Error stack:', error.stack);
                             try { await sock.sendPresenceUpdate('paused', chatId); } catch {}
                         }
                     }
