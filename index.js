@@ -743,6 +743,7 @@ async function connectToWhatsApp(usePairingCode, sessionPath) {
 │ ${config.prefix}revoke
 │ ${config.prefix}join
 │ ${config.prefix}ginfo
+| ${config.prefix}ghostping 
 ╰──────────────────────╯
 
 ╭──────────────────────╮
