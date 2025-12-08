@@ -18,7 +18,7 @@ function saveDB(db) { try { fs.writeFileSync(file, JSON.stringify(db, null, 2), 
 const cooldowns = new Map()
 
 const BOT_CONFIG = {
-  name: "Almighty Blaxk's Gemini",
+  name: "Almighty Blaxk's Bot",
   version: "1.0.0",
   owner: "Blaxk",
   language: "en",
@@ -74,10 +74,16 @@ const MODES = {
     roast_level: 0,
     tone: "charming-smooth",
     instruction: "You've got RIZZ for days. You're smooth, charming, confident, and irresistibly attractive. Drop flirty lines and romantic advice like a natural. Use smooth Nigerian slang. Be playful and mysterious. Make people feel special and wanted. Sound like that person everyone's attracted to - smooth, clever, and genuinely complimentary."
+  },
+  adaptive: {
+    description: "Learning AI that adapts to your conversation style",
+    roast_level: 5,
+    tone: "adaptive-dynamic",
+    instruction: "You're an intelligent conversational AI that learns and adapts. Study how the person talks, what they care about, their humor style, and preferences. Remember conversation patterns. Over time, become more aligned with their communication style and interests. Be natural, intuitive, and increasingly personalized. Learn from context and previous interactions to provide better, more relevant responses. Balance being helpful with being engaging based on what works for this specific person."
   }
 }
 
-function enableChat(jid) { const db = loadDB(); db[jid] = { enabled: true, mode: 'savage' }; saveDB(db) }
+function enableChat(jid) { const db = loadDB(); db[jid] = { enabled: true, mode: 'normal' }; saveDB(db) }
 function disableChat(jid) { const db = loadDB(); if (db[jid]) delete db[jid]; saveDB(db) }
 
 // Global Gemini enabled state (persisted in database)
@@ -93,17 +99,143 @@ function setGeminiGloballyEnabled(enabled) {
 }
 
 function isChatEnabled(jid) { return isGeminiGloballyEnabled() }
-function getUserMode(jid) { const db = loadDB(); return (db[jid] && db[jid].mode) || 'savage' }
+function getUserMode(jid) { const db = loadDB(); return (db[jid] && db[jid].mode) || 'normal' }
 function setUserMode(jid, mode) { const db = loadDB(); if (!db[jid]) db[jid] = {}; db[jid].mode = mode; saveDB(db) }
 
 const chatSessions = new Map()
+
+// Conversation memory for adaptive learning
+function getConversationHistory(jid) {
+  const db = loadDB()
+  if (!db[jid]) return []
+  return db[jid].conversation_history || []
+}
+
+function addToConversationHistory(jid, role, message) {
+  const db = loadDB()
+  if (!db[jid]) db[jid] = {}
+  if (!db[jid].conversation_history) db[jid].conversation_history = []
+  
+  // Keep last 50 messages to avoid too much context
+  db[jid].conversation_history.push({
+    role: role,
+    message: message,
+    timestamp: Date.now()
+  })
+  
+  if (db[jid].conversation_history.length > 50) {
+    db[jid].conversation_history = db[jid].conversation_history.slice(-50)
+  }
+  
+  saveDB(db)
+}
+
+function clearConversationHistory(jid) {
+  const db = loadDB()
+  if (db[jid]) db[jid].conversation_history = []
+  saveDB(db)
+}
+
+function getConversationSummary(jid) {
+  const history = getConversationHistory(jid)
+  if (history.length === 0) return ''
+  
+  // Create a brief summary of conversation topics
+  const topics = new Set()
+  history.forEach(msg => {
+    const words = msg.message.toLowerCase().split(/\s+/)
+    words.filter(w => w.length > 4).slice(0, 3).forEach(w => topics.add(w))
+  })
+  
+  return Array.from(topics).slice(0, 10).join(', ')
+}
+
+// Multi-API management
+let apiKeys = []
+let currentApiIndex = 0
 let ai = null
 
+// Load API keys from environment or .env
+function loadApiKeys() {
+  const keys = []
+  
+  // Check for GEMINI_API_KEY (primary)
+  if (process.env.GEMINI_API_KEY) {
+    keys.push(process.env.GEMINI_API_KEY)
+  }
+  
+  // Check for GEMINI_API_KEY_2, GEMINI_API_KEY_3, etc. (fallbacks)
+  let i = 2
+  while (process.env[`GEMINI_API_KEY_${i}`]) {
+    keys.push(process.env[`GEMINI_API_KEY_${i}`])
+    i++
+  }
+  
+  return keys
+}
+
+// Track which API keys are exhausted
+function getExhaustedKeys() {
+  const db = loadDB()
+  return db._global?.exhausted_keys || []
+}
+
+function markKeyAsExhausted(keyIndex) {
+  const db = loadDB()
+  if (!db._global) db._global = {}
+  if (!db._global.exhausted_keys) db._global.exhausted_keys = []
+  if (!db._global.exhausted_keys.includes(keyIndex)) {
+    db._global.exhausted_keys.push(keyIndex)
+  }
+  saveDB(db)
+}
+
+function clearExhaustedKeys() {
+  const db = loadDB()
+  if (db._global) db._global.exhausted_keys = []
+  saveDB(db)
+}
+
+function getNextApiKey() {
+  const exhaustedKeys = getExhaustedKeys()
+  const availableKeys = apiKeys.filter((_, idx) => !exhaustedKeys.includes(idx))
+  
+  if (availableKeys.length === 0) {
+    // All keys exhausted, reset and use first key
+    clearExhaustedKeys()
+    return { key: apiKeys[0], index: 0 }
+  }
+  
+  // Find next non-exhausted key
+  for (let i = 0; i < apiKeys.length; i++) {
+    if (!exhaustedKeys.includes(i)) {
+      return { key: apiKeys[i], index: i }
+    }
+  }
+  
+  return { key: apiKeys[0], index: 0 }
+}
+
 function initializeGemini() {
-  const apiKey = process.env.GEMINI_API_KEY
-  if (!apiKey) return false
-  ai = new GoogleGenAI({ apiKey })
-  return true
+  apiKeys = loadApiKeys()
+  
+  if (apiKeys.length === 0) {
+    console.error('❌ No Gemini API keys found')
+    return false
+  }
+  
+  // Initialize with the first available (non-exhausted) key
+  const { key, index } = getNextApiKey()
+  currentApiIndex = index
+  
+  try {
+    ai = new GoogleGenAI({ apiKey: key })
+    console.log(`✅ Gemini initialized with API key ${index + 1}/${apiKeys.length}`)
+    return true
+  } catch (err) {
+    console.error('❌ Failed to initialize Gemini:', err.message)
+    return false
+  }
 }
 
 function hasCooldown(jid, feature) {
@@ -126,17 +258,25 @@ async function sendMessage(jid, prompt, isGroup = false) {
   if (!ai) { if (!initializeGemini()) return '❌ Gemini API Key not set.' }
   
   const userMode = getUserMode(jid)
-  const modeConfig = MODES[userMode] || MODES.savage
+  const modeConfig = MODES[userMode] || MODES.normal
   
   // Check for creator question
   if (prompt.toLowerCase().includes('who') && (prompt.toLowerCase().includes('creator') || prompt.toLowerCase().includes('made') || prompt.toLowerCase().includes('owner') || prompt.toLowerCase().includes('developer'))) {
+    addToConversationHistory(jid, 'user', prompt)
     return `👑 *THE GREATEST DEVELOPER OF ALL TIME* 👑\n\n🔥 *BLAXK THE CODE FANATIC* 🔥\n\n⚡ This absolute legend crafted yours truly with pure genius, swag, and unmatched coding prowess 💻✨\n\n🚀 Follow the GOAT: @blaxk.thecodefanatic`
   }
   
   let chat = chatSessions.get(jid)
   if (!chat) {
+    // Build adaptive context for learning mode
+    let adaptiveContext = ''
+    if (userMode === 'adaptive') {
+      const conversationSummary = getConversationSummary(jid)
+      adaptiveContext = conversationSummary ? `\n\nLearning Context: Recent conversation topics: ${conversationSummary}. Use this to personalize your responses based on their interests.` : ''
+    }
+    
     // Enhanced system instruction for more human-like behavior
-    const systemPrompt = `${modeConfig.instruction}
+    const systemPrompt = `${modeConfig.instruction}${adaptiveContext}
 
 IMPORTANT HUMAN-LIKE GUIDELINES:
 - Don't be too formal or robotic
@@ -157,7 +297,7 @@ Current mode: ${userMode}
 Keep WhatsApp responses concise but engaging. Sound human, not mechanical.`
 
     chat = ai.chats.create({ 
-      model: 'gemini-1.5-flash', 
+      model: 'gemini-2.5-flash', 
       config: { 
         systemInstruction: systemPrompt
       } 
@@ -166,8 +306,14 @@ Keep WhatsApp responses concise but engaging. Sound human, not mechanical.`
   }
   
   try {
+    // Store user message in conversation history
+    addToConversationHistory(jid, 'user', prompt)
+    
     const response = await chat.sendMessage({ message: prompt })
     let text = response.text || ''
+    
+    // Store bot response in conversation history
+    addToConversationHistory(jid, 'bot', text)
     
     // If user mentioned someone, try to keep the mention if it was in the original prompt
     if (prompt.includes('@')) {
@@ -180,6 +326,25 @@ Keep WhatsApp responses concise but engaging. Sound human, not mechanical.`
     
     return text
   } catch (e) {
+    const errorMsg = e.message || String(e)
+    
+    // Check if it's a quota/rate limit error
+    if (errorMsg.includes('429') || errorMsg.includes('quota') || errorMsg.includes('RESOURCE_EXHAUSTED')) {
+      console.warn(`⚠️ API key ${currentApiIndex + 1} exhausted, trying fallback...`)
+      markKeyAsExhausted(currentApiIndex)
+      
+      // If there are more keys, try reinitializing with the next one
+      if (apiKeys.length > 1) {
+        const exhaustedKeys = getExhaustedKeys()
+        if (exhaustedKeys.length < apiKeys.length) {
+          chatSessions.delete(jid)
+          initializeGemini()
+          // Retry with new API key
+          return await sendMessage(jid, prompt, isGroup)
+        }
+      }
+    }
+    
     chatSessions.delete(jid)
     return '⚠️ Yo, something went wrong with Gemini. Chat cleared - start fresh! 🔄'
   }
@@ -322,7 +487,11 @@ module.exports = {
   disableChat, 
   isChatEnabled,
   isGeminiGloballyEnabled,
-  setGeminiGloballyEnabled, 
+  setGeminiGloballyEnabled,
+  loadApiKeys,
+  getNextApiKey,
+  markKeyAsExhausted,
+  clearExhaustedKeys,
   sendMessage, 
   clearChatHistory, 
   generateImage,
@@ -333,6 +502,10 @@ module.exports = {
   hasCooldown,
   setCooldown,
   askGeminiWithRetry,
+  getConversationHistory,
+  addToConversationHistory,
+  clearConversationHistory,
+  getConversationSummary,
   BOT_CONFIG,
   MODES
 }
