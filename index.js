@@ -533,17 +533,18 @@ async function connectToWhatsApp(usePairingCode, sessionPath) {
             console.log(`🔑 Bot Owner: ${botOwnNumber}\n`);
             console.log('💡 Bot is active and ready to respond to commands!\n');
 
-            // Initialize Gemini if enabled
+            // Initialize Gemini API
             try {
-                if (process.env.GEMINI_ENABLED === 'true') {
-                    const geminiReady = gemini.initializeGemini();
-                    if (geminiReady) {
-                        console.log('✅ Gemini API initialized and ready\n');
+                const geminiReady = gemini.initializeGemini();
+                if (geminiReady) {
+                    console.log('✅ Gemini API initialized and ready');
+                    if (gemini.isGeminiGloballyEnabled()) {
+                        console.log('🤖 Gemini chatbot is ACTIVE - will respond to all messages\n');
                     } else {
-                        console.log('⚠️ Gemini API Key not set. Chatbot disabled.\n');
+                        console.log('🤖 Gemini API ready but chatbot is OFF - use !gemini on to enable\n');
                     }
                 } else {
-                    console.log('⚠️ Gemini disabled (GEMINI_ENABLED=false)\n');
+                    console.log('⚠️ Gemini API Key not set. Chatbot unavailable.\n');
                 }
             } catch (err) {
                 console.error('⚠️ Gemini initialization error:', err.message, '\n');
@@ -2858,8 +2859,8 @@ ${config.prefix}setvar <key> <value>
 
             // Check if message starts with prefix
             if (!messageText.startsWith(config.prefix)) {
-                // Check if Gemini chatbot is enabled globally and process as chat
-                if (process.env.GEMINI_ENABLED === 'true' && !msg.key.fromMe) {
+                // Check if Gemini chatbot is enabled and process as chat
+                if (gemini.isChatEnabled(chatId) && !msg.key.fromMe) {
                     const isGroup = Permissions.isGroup(chatId);
                     const isMentioned = msg.message.extendedTextMessage?.mentionedJid?.includes(sock.user.id) || messageText.includes('@' + sock.user.id.split(':')[0]);
                     const isRepliedTo = msg.message.extendedTextMessage?.contextInfo?.quotedMessage !== undefined;
@@ -2876,15 +2877,10 @@ ${config.prefix}setvar <key> <value>
                             await sock.sendPresenceUpdate('composing', chatId);
                             const response = await gemini.sendMessage(chatId, messageText, isGroup);
                             await sock.sendPresenceUpdate('paused', chatId);
-                            if (response && response.includes('❌')) {
-                                // Gemini error - log it for debugging
-                                console.error('⚠️ Gemini returned error:', response);
-                            }
                             await sock.sendMessage(chatId, { text: response }, { quoted: msg });
                             return; // Handled by chatbot
                         } catch (error) {
-                            console.error('❌ Chatbot error:', error.message);
-                            console.error('Error stack:', error.stack);
+                            console.error('❌ Chatbot error:', error);
                             try { await sock.sendPresenceUpdate('paused', chatId); } catch {}
                         }
                     }
@@ -3145,14 +3141,9 @@ showMenu().catch(err => {
                 return;
             }
             const enable = sub === 'on';
-            const ok = updateEnvFile('GEMINI_ENABLED', enable ? 'true' : 'false');
-            if (ok) {
-                process.env.GEMINI_ENABLED = enable ? 'true' : 'false';
-                const msg_txt = enable ? `✅ *Gemini Chatbot Activated!*\n\n🤖 Almighty Blaxk's Gemini is now ON\n📱 Respond to all messages in chatbot mode\n🎭 Default mode: SAVAGE\n\nUse ${config.prefix}gemini mode <name> to change modes.` : `❌ *Gemini Chatbot Deactivated*\n\nBot is back to command mode only.`;
-                await sock.sendMessage(jid, { text: msg_txt });
-            } else {
-                await sock.sendMessage(jid, { text: '❌ Failed to update .env for global Gemini toggle.' });
-            }
+            gemini.setGeminiGloballyEnabled(enable);
+            const msg_txt = enable ? `✅ *Gemini Chatbot Activated!*\n\n🤖 Almighty Blaxk's Gemini is now ON\n📱 Respond to all messages in chatbot mode\n🎭 Default mode: SAVAGE\n\nUse ${config.prefix}gemini mode <name> to change modes.` : `❌ *Gemini Chatbot Deactivated*\n\nBot is back to command mode only.`;
+            await sock.sendMessage(jid, { text: msg_txt });
             return;
         }
 

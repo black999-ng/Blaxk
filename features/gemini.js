@@ -79,7 +79,20 @@ const MODES = {
 
 function enableChat(jid) { const db = loadDB(); db[jid] = { enabled: true, mode: 'savage' }; saveDB(db) }
 function disableChat(jid) { const db = loadDB(); if (db[jid]) delete db[jid]; saveDB(db) }
-function isChatEnabled(jid) { return process.env.GEMINI_ENABLED === 'true' }
+
+// Global Gemini enabled state (persisted in database)
+function isGeminiGloballyEnabled() { 
+  const db = loadDB()
+  return db._global && db._global.gemini_enabled !== false // default to true
+}
+function setGeminiGloballyEnabled(enabled) {
+  const db = loadDB()
+  if (!db._global) db._global = {}
+  db._global.gemini_enabled = enabled
+  saveDB(db)
+}
+
+function isChatEnabled(jid) { return isGeminiGloballyEnabled() }
 function getUserMode(jid) { const db = loadDB(); return (db[jid] && db[jid].mode) || 'savage' }
 function setUserMode(jid, mode) { const db = loadDB(); if (!db[jid]) db[jid] = {}; db[jid].mode = mode; saveDB(db) }
 
@@ -307,7 +320,9 @@ module.exports = {
   initializeGemini, 
   enableChat, 
   disableChat, 
-  isChatEnabled, 
+  isChatEnabled,
+  isGeminiGloballyEnabled,
+  setGeminiGloballyEnabled, 
   sendMessage, 
   clearChatHistory, 
   generateImage,
