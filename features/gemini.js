@@ -150,10 +150,11 @@ function getConversationSummary(jid) {
   return Array.from(topics).slice(0, 10).join(', ')
 }
 
-// Multi-API management
+// Multi-API management with improved rotation
 let apiKeys = []
 let currentApiIndex = 0
 let ai = null
+const ROTATION_TIMEOUT = 60 * 60 * 1000 // Reset exhausted keys every hour
 
 // Load API keys from environment or .env
 function loadApiKeys() {
@@ -174,45 +175,64 @@ function loadApiKeys() {
   return keys
 }
 
-// Track which API keys are exhausted
+// Track which API keys are exhausted with auto-reset
 function getExhaustedKeys() {
   const db = loadDB()
-  return db._global?.exhausted_keys || []
+  const exhausted = db._global?.exhausted_keys || []
+  const lastReset = db._global?.exhausted_keys_reset || 0
+  
+  // Auto-reset if timeout exceeded (hourly reset)
+  if (Date.now() - lastReset > ROTATION_TIMEOUT) {
+    clearExhaustedKeys()
+    return []
+  }
+  
+  return exhausted
 }
 
 function markKeyAsExhausted(keyIndex) {
   const db = loadDB()
   if (!db._global) db._global = {}
   if (!db._global.exhausted_keys) db._global.exhausted_keys = []
+  if (!db._global.exhausted_keys_reset) db._global.exhausted_keys_reset = Date.now()
+  
   if (!db._global.exhausted_keys.includes(keyIndex)) {
     db._global.exhausted_keys.push(keyIndex)
+    console.log(`⚠️ API Key ${keyIndex + 1} marked as exhausted. Rotating to next key...`)
   }
   saveDB(db)
 }
 
 function clearExhaustedKeys() {
   const db = loadDB()
-  if (db._global) db._global.exhausted_keys = []
+  if (!db._global) db._global = {}
+  db._global.exhausted_keys = []
+  db._global.exhausted_keys_reset = Date.now()
   saveDB(db)
+  console.log('✅ API key exhaustion list cleared. All keys are fresh.')
 }
 
 function getNextApiKey() {
-  const exhaustedKeys = getExhaustedKeys()
-  const availableKeys = apiKeys.filter((_, idx) => !exhaustedKeys.includes(idx))
+  if (apiKeys.length === 0) return { key: null, index: -1 }
   
-  if (availableKeys.length === 0) {
-    // All keys exhausted, reset and use first key
+  const exhaustedKeys = getExhaustedKeys()
+  
+  // If all keys exhausted, reset and start over
+  if (exhaustedKeys.length >= apiKeys.length) {
     clearExhaustedKeys()
+    console.log('🔄 All API keys reset. Starting rotation cycle again.')
     return { key: apiKeys[0], index: 0 }
   }
   
-  // Find next non-exhausted key
+  // Find next non-exhausted key starting from current index
   for (let i = 0; i < apiKeys.length; i++) {
-    if (!exhaustedKeys.includes(i)) {
-      return { key: apiKeys[i], index: i }
+    const idx = (currentApiIndex + i) % apiKeys.length
+    if (!exhaustedKeys.includes(idx)) {
+      return { key: apiKeys[idx], index: idx }
     }
   }
   
+  // Fallback to first key
   return { key: apiKeys[0], index: 0 }
 }
 
@@ -226,6 +246,12 @@ function initializeGemini() {
   
   // Initialize with the first available (non-exhausted) key
   const { key, index } = getNextApiKey()
+  
+  if (!key) {
+    console.error('❌ No available API keys')
+    return false
+  }
+  
   currentApiIndex = index
   
   try {
@@ -234,7 +260,9 @@ function initializeGemini() {
     return true
   } catch (err) {
     console.error('❌ Failed to initialize Gemini:', err.message)
-    return false
+    markKeyAsExhausted(index)
+    // Try next key recursively
+    return initializeGemini()
   }
 }
 
@@ -328,25 +356,35 @@ Keep WhatsApp responses concise but engaging. Sound human, not mechanical.`
   } catch (e) {
     const errorMsg = e.message || String(e)
     
-    // Check if it's a quota/rate limit error
-    if (errorMsg.includes('429') || errorMsg.includes('quota') || errorMsg.includes('RESOURCE_EXHAUSTED')) {
-      console.warn(`⚠️ API key ${currentApiIndex + 1} exhausted, trying fallback...`)
+    // Check if it's a quota/rate limit or server error
+    const isRateLimitError = errorMsg.includes('429') || errorMsg.includes('quota') || errorMsg.includes('RESOURCE_EXHAUSTED') || errorMsg.includes('Too Many Requests')
+    const isServerError = errorMsg.includes('500') || errorMsg.includes('503') || errorMsg.includes('SERVICE_UNAVAILABLE')
+    
+    if (isRateLimitError) {
+      console.warn(`⚠️ API key ${currentApiIndex + 1} hit rate limit. Rotating to next key...`)
       markKeyAsExhausted(currentApiIndex)
       
-      // If there are more keys, try reinitializing with the next one
-      if (apiKeys.length > 1) {
-        const exhaustedKeys = getExhaustedKeys()
-        if (exhaustedKeys.length < apiKeys.length) {
-          chatSessions.delete(jid)
-          initializeGemini()
-          // Retry with new API key
+      // Try to get next available key
+      const { key, index } = getNextApiKey()
+      if (key && index !== currentApiIndex) {
+        currentApiIndex = index
+        try {
+          ai = new GoogleGenAI({ apiKey: key })
+          console.log(`✅ Switched to API key ${index + 1}/${apiKeys.length}`)
+          // Retry with new API key (keep chat session)
           return await sendMessage(jid, prompt, isGroup)
+        } catch (err) {
+          console.error('❌ Failed to initialize fallback key:', err.message)
         }
       }
     }
     
+    // For other errors, just clear session and return error
     chatSessions.delete(jid)
-    return '⚠️ Yo, something went wrong with Gemini. Chat cleared - start fresh! 🔄'
+    const errorResponse = isServerError 
+      ? '⚠️ Gemini servers are busy. Try again in a moment! 🔄'
+      : '⚠️ Something went wrong with Gemini. Chat cleared - start fresh! 🔄'
+    return errorResponse
   }
 }
 
@@ -492,6 +530,7 @@ module.exports = {
   getNextApiKey,
   markKeyAsExhausted,
   clearExhaustedKeys,
+  getExhaustedKeys,
   sendMessage, 
   clearChatHistory, 
   generateImage,

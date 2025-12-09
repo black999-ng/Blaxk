@@ -43,6 +43,7 @@ const registerAntiwordsCommand = require('./features/antiwords');
 const registerApkCommand = require('./features/apk');
 const registerEmojimixCommand = require('./features/emojimix');
 const saveStatus = require('./lib/saveStatus');
+const football = require('./features/football');
 
 // Health check server for Render monitoring
 const express = require('express');
@@ -744,7 +745,7 @@ async function connectToWhatsApp(usePairingCode, sessionPath) {
 │ ${config.prefix}revoke
 │ ${config.prefix}join
 │ ${config.prefix}ginfo
-| ${config.prefix}ghostping 
+ | ${config.prefix}ghostping 
 ╰──────────────────────╯
 
 ╭──────────────────────╮
@@ -1715,15 +1716,15 @@ ${config.prefix}setvar <key> <value>
                 muteTimers.set(msg.key.remoteJid, timer);
             } else {
                 await sock.sendMessage(msg.key.remoteJid, {
-                    text: `🔇 *Group Muted*\n\nOnly admins can send messages.\nUse ${config.prefix}unmute to unmute.`
-                });
+                    text: `🔇 *Group Muted Indefinitely*\n\nOnly admins can send messages.`
+            });
             }
         } catch (error) {
             await sock.sendMessage(msg.key.remoteJid, {
                 text: `❌ Failed to mute group: ${error.message}`
             });
         }
-    }); */
+    });
 
     /* moved to features/group.js */
     /* registerCommand('unmute', 'Unmute the group', async (sock, msg) => {
@@ -2128,7 +2129,9 @@ ${config.prefix}setvar <key> <value>
                 // Cleanup: delete the downloaded file
                 try {
                     fs.unlinkSync(imagePath);
-                } catch {}
+                } catch (e) {
+                    console.error('Failed to delete temp file:', e);
+                }
 
                 // Small delay between images
                 if (i < downloadedPaths.length - 1) {
@@ -2554,7 +2557,7 @@ ${config.prefix}setvar <key> <value>
             const isRevoke = !!msg.message.protocolMessage && msg.message.protocolMessage.type === 0;
             if (isRevoke) {
                 const chatId = msg.key.remoteJid;
-                const enabled = (process.env.AUTO_ANTI_DELETE === 'true') || antiDeleteChats.get('global') || antiDeleteChats.get(chatId);
+                const enabled = (process.env.AUTO_ANTI_DELETE === 'true') || antiDeleteChats.get('global');
                 if (enabled) {
                     try {
                         const ref = msg.message.protocolMessage.key || {};
@@ -2585,7 +2588,7 @@ ${config.prefix}setvar <key> <value>
                                     sent = true;
                                 } else if (m.audioMessage) {
                                     const buffer = await downloadMediaMessage({ message: originalMsg }, 'buffer', {}, { logger: pino({ level: 'silent' }) });
-                                    await sock.sendMessage(chatId, { audio: buffer, mimetype: m.audioMessage.mimetype || 'audio/mpeg', ptt: false, fileName: 'audio' }, { quoted: msg });
+                                    await sock.sendMessage(chatId, { audio: buffer, mimetype: m.audioMessage.mimetype || 'audio/mpeg', ptt: false, fileName: 'audio' });
                                     await sock.sendMessage(chatId, { text: label, mentions });
                                     sent = true;
                                 } else if (m.stickerMessage) {
@@ -2862,22 +2865,40 @@ ${config.prefix}setvar <key> <value>
                 // Check if Gemini chatbot is enabled and process as chat
                 if (gemini.isChatEnabled(chatId) && !msg.key.fromMe) {
                     const isGroup = Permissions.isGroup(chatId);
-                    const isMentioned = msg.message.extendedTextMessage?.mentionedJid?.includes(sock.user.id) || messageText.includes('@' + sock.user.id.split(':')[0]);
-                    const isRepliedTo = msg.message.extendedTextMessage?.contextInfo?.quotedMessage !== undefined;
-                    
+                    let isMentioned = false;
+                    let isRepliedTo = false;
+                    let mentionPhoneNumbers = [];
+                    // Check for mention by phone number or bot JID
+                    if (msg.message.extendedTextMessage?.mentionedJid) {
+                        isMentioned = msg.message.extendedTextMessage.mentionedJid.includes(sock.user.id);
+                        mentionPhoneNumbers = msg.message.extendedTextMessage.mentionedJid.map(jid => jid.split('@')[0]);
+                    }
+                    // Also check for @<bot_number> in text
+                    if (messageText.includes('@' + sock.user.id.split(':')[0])) {
+                        isMentioned = true;
+                        mentionPhoneNumbers.push(sock.user.id.split(':')[0]);
+                    }
+                    // Check if replied to bot
+                    isRepliedTo = msg.message.extendedTextMessage?.contextInfo?.quotedMessage !== undefined;
+
                     // In groups: only respond if mentioned or replied to
                     // In private chats: always respond
                     let shouldRespond = true;
                     if (isGroup && !(isMentioned || isRepliedTo)) {
                         shouldRespond = false;
                     }
-                    
+
                     if (shouldRespond) {
                         try {
                             await sock.sendPresenceUpdate('composing', chatId);
                             const response = await gemini.sendMessage(chatId, messageText, isGroup);
                             await sock.sendPresenceUpdate('paused', chatId);
-                            await sock.sendMessage(chatId, { text: response }, { quoted: msg });
+                            // Mention users by phone number if present
+                            let mentions = [];
+                            if (isGroup && mentionPhoneNumbers.length > 0) {
+                                mentions = mentionPhoneNumbers.map(num => num + '@s.whatsapp.net');
+                            }
+                            await sock.sendMessage(chatId, { text: response, mentions }, { quoted: msg });
                             return; // Handled by chatbot
                         } catch (error) {
                             console.error('❌ Chatbot error:', error);
@@ -3057,6 +3078,19 @@ ${config.prefix}setvar <key> <value>
       console.error('❌ Failed to register apk command:', e && e.message ? e.message : e);
     }
 
+    registerCommand('football', 'Get football data from API. Usage: .football <endpoint> [args]', async (sock, msg, args) => {
+        if (!args || args.length === 0) {
+            await sock.sendMessage(msg.key.remoteJid, {
+                text: `⚽ Usage: ${config.prefix}football <endpoint> [args]\n\nSupported endpoints:\n${Object.keys(football.endpoints).map(e => `- ${e}`).join('\n')}`
+            });
+            return;
+        }
+        const cmd = args[0].toLowerCase();
+        const apiArgs = args.slice(1);
+        const result = await football.footballCommand(cmd, apiArgs);
+        await sock.sendMessage(msg.key.remoteJid, { text: result });
+    });
+
     return sock;
 }
 
@@ -3114,7 +3148,7 @@ async function showMenu() {
             console.log('❌ Invalid choice. Please run the bot again and select 1 or 2.\n');
             rl.close();
             process.exit(1);
-        }
+ }
     }
 }
 
@@ -3126,143 +3160,3 @@ showMenu().catch(err => {
     rl.close();
     process.exit(1);
 });
-    registerCommand('gemini', 'Gemini chatbot with multiple modes: on/off/mode/clearchat', async (sock, msg, args) => {
-        const jid = msg.key.remoteJid;
-        const sub = (args[0] || '').toLowerCase();
-        const senderJid = msg.key.participant || msg.key.remoteJid;
-        const normalizedOwner = String(config.ownerNumber).replace(/[^0-9]/g, '');
-        const normalizedSender = senderJid.split('@')[0].replace(/[^0-9]/g, '');
-        const isOwner = normalizedSender === normalizedOwner || senderJid.includes(normalizedOwner) || msg.key.fromMe;
-
-        // Toggle on/off (owner only)
-        if (sub === 'on' || sub === 'off') {
-            if (!isOwner) {
-                await sock.sendMessage(jid, { text: '❌ Only the bot owner can toggle Gemini.' });
-                return;
-            }
-            const enable = sub === 'on';
-            gemini.setGeminiGloballyEnabled(enable);
-            const msg_txt = enable ? `✅ *Gemini Chatbot Activated!*\n\n🤖 Almighty Blaxk's Gemini is now ON\n📱 Respond to all messages in chatbot mode\n🎭 Default mode: SAVAGE\n\nUse ${config.prefix}gemini mode <name> to change modes.` : `❌ *Gemini Chatbot Deactivated*\n\nBot is back to command mode only.`;
-            await sock.sendMessage(jid, { text: msg_txt });
-            return;
-        }
-
-        // Mode management (all users)
-        if (sub === 'mode') {
-            const newMode = (args[1] || '').toLowerCase();
-            if (!newMode) {
-                const modes = gemini.getModeList();
-                await sock.sendMessage(jid, { text: `🎭 *Available Modes:*\n\n${modes}\n\nUse: ${config.prefix}gemini mode <name>` });
-                return;
-            }
-            if (!gemini.MODES[newMode]) {
-                const available = gemini.getFormatted_Modes();
-                await sock.sendMessage(jid, { text: `❌ Mode not found!\n\nAvailable: ${available}` });
-                return;
-            }
-            gemini.setUserMode(jid, newMode);
-            gemini.clearChatHistory(jid);
-            const modeDesc = gemini.MODES[newMode].description;
-            await sock.sendMessage(jid, { text: `🎭 *Mode Changed to: ${newMode.toUpperCase()}*\n\n${modeDesc}\n\n💬 Start chatting! Your responses will be in this mode.` });
-            return;
-        }
-
-        // Clear chat (all users)
-        if (sub === 'clearchat') { 
-            gemini.clearChatHistory(jid); 
-            await sock.sendMessage(jid, { text: '✅ Gemini chat session cleared. Starting fresh!' }); 
-            return; 
-        }
-
-        // Mode info (all users)
-        if (sub === 'info') {
-            const currentMode = gemini.getUserMode(jid);
-            const modeData = gemini.MODES[currentMode];
-            const infoText = `🤖 *Bot Info*\n\nName: ${gemini.BOT_CONFIG.name}\nVersion: ${gemini.BOT_CONFIG.version}\nOwner: ${gemini.BOT_CONFIG.owner}\nPersonality: ${gemini.BOT_CONFIG.personality}\n\n🎭 Current Mode: ${currentMode.toUpperCase()}\nDescription: ${modeData.description}\nRoast Level: ${modeData.roast_level}/10\nTone: ${modeData.tone}`;
-            await sock.sendMessage(jid, { text: infoText });
-            return;
-        }
-
-        // Chat prompt (only if enabled)
-        const prompt = args.join(' ').trim();
-        if (!prompt) { 
-            await sock.sendMessage(jid, { text: `💡 *Gemini Commands:*\n\n${config.prefix}gemini on - Enable chatbot\n${config.prefix}gemini off - Disable chatbot\n${config.prefix}gemini mode <name> - Change mode\n${config.prefix}gemini mode - List all modes\n${config.prefix}gemini clearchat - Clear history\n${config.prefix}gemini info - Bot info\n${config.prefix}gemini <prompt> - Send a message` }); 
-            return; 
-        }
-        if (!gemini.isChatEnabled(jid)) { 
-            await sock.sendMessage(jid, { text: `❌ Gemini chat is disabled globally. Use ${config.prefix}gemini on to enable.` }); 
-            return; 
-        }
-        try { await sock.sendPresenceUpdate('composing', jid); } catch {}
-        const response = await gemini.sendMessage(jid, prompt);
-        try { await sock.sendPresenceUpdate('paused', jid); } catch {}
-        await sock.sendMessage(jid, { text: response });
-    });
-    const presenceTargets = new Set();
-    try {
-        sock.ev.on('chats.set', ({ chats }) => {
-            try { for (const c of chats) presenceTargets.add(c.id); } catch {}
-        });
-        sock.ev.on('chats.update', (updates) => {
-            try { for (const u of updates) if (u.id) presenceTargets.add(u.id); } catch {}
-        });
-    } catch {}
-    let presenceInterval = null;
-    function startPresenceLoop(sockInstance) {
-        const activeStates = new Set(['composing', 'recording', 'available']);
-        if (presenceInterval) { try { clearInterval(presenceInterval); } catch {} }
-        presenceInterval = setInterval(async () => {
-            const currentState = (process.env.WAPRESENCE_STATE || 'paused').toLowerCase();
-            if (!activeStates.has(currentState)) return;
-            try {
-                if (currentState === 'available') {
-                    await sockInstance.sendPresenceUpdate('available');
-                }
-                for (const jid of presenceTargets) {
-                    await sockInstance.sendPresenceUpdate(currentState, jid);
-                }
-            } catch (e) {}
-        }, 20000);
-    }
-    registerCommand('alive', 'Show or set alive message for this chat', async (sock, msg, args) => {
-        const jid = msg.key.remoteJid;
-        const text = args.join(' ').trim();
-        if (!text) {
-            const message = alive.getAliveMessage();
-            const formatted = `💫 *Blaxk_TCF Alive*\n\n${message}\n\n⚡ Powered by Blaxk_TCF`;
-            await sock.sendMessage(jid, { text: formatted });
-            return;
-        }
-        if (text.toLowerCase() === 'reset') {
-            alive.clearAliveMessage();
-            const formatted = `💫 *Blaxk_TCF Alive*\n\n${alive.DEFAULT_ALIVE}\n\n⚡ Powered by Blaxk_TCF`;
-            await sock.sendMessage(jid, { text: formatted });
-            return;
-        }
-        alive.setAliveMessage(null, text);
-        await sock.sendMessage(jid, { text: `✅ Alive message updated globally.` });
-    });
-
-    registerCommand('wapresence', 'Set global WhatsApp presence (owner only)', async (sock, msg, args) => {
-        const jid = msg.key.remoteJid;
-        const senderJid = msg.key.participant || msg.key.remoteJid;
-        const normalizedOwner = String(config.ownerNumber).replace(/[^0-9]/g, '');
-        const normalizedSender = senderJid.split('@')[0].replace(/[^0-9]/g, '');
-        const isOwner = normalizedSender === normalizedOwner || senderJid.includes(normalizedOwner) || msg.key.fromMe;
-        if (!isOwner) { await sock.sendMessage(jid, { text: '❌ Only the bot owner can use this command.' }); return; }
-        const sub = (args[0] || '').toLowerCase();
-        const state = presence.mapInputToState(sub);
-        if (!state) { await sock.sendMessage(jid, { text: `❌ Invalid presence state. Use: ${config.prefix}wapresence <on|off|typing|recording|online>` }); return; }
-        const ok = updateEnvFile('WAPRESENCE_STATE', state);
-        if (ok) {
-            process.env.WAPRESENCE_STATE = state;
-            try {
-                presenceTargets.add(jid);
-                if (state === 'available') { await sock.sendPresenceUpdate('available'); }
-                await sock.sendPresenceUpdate(state, jid);
-            } catch {}
-            await sock.sendMessage(jid, { text: `✅ Presence set to *${state.toUpperCase()}* globally.` });
-        } else {
-            await sock.sendMessage(jid, { text: '❌ Failed to update presence in .env' });
-        }
-    });
