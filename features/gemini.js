@@ -240,7 +240,7 @@ function initializeGemini() {
   apiKeys = loadApiKeys()
   
   if (apiKeys.length === 0) {
-    console.error('❌ No Gemini API keys found')
+    console.error('❌ No API keys found')
     return false
   }
   
@@ -256,10 +256,10 @@ function initializeGemini() {
   
   try {
     ai = new GoogleGenAI({ apiKey: key })
-    console.log(`✅ Gemini initialized with API key ${index + 1}/${apiKeys.length}`)
+    console.log(`✅ initialized with API key ${index + 1}/${apiKeys.length}`)
     return true
   } catch (err) {
-    console.error('❌ Failed to initialize Gemini:', err.message)
+    console.error('❌ Failed to initialize:', err.message)
     markKeyAsExhausted(index)
     // Try next key recursively
     return initializeGemini()
@@ -283,7 +283,7 @@ function setCooldown(jid, feature, seconds) {
 }
 
 async function sendMessage(jid, prompt, isGroup = false) {
-  if (!ai) { if (!initializeGemini()) return '❌ Gemini API Key not set.' }
+  if (!ai) { if (!initializeGemini()) return '❌ API Key not set.' }
   
   const userMode = getUserMode(jid)
   const modeConfig = MODES[userMode] || MODES.normal
@@ -291,7 +291,7 @@ async function sendMessage(jid, prompt, isGroup = false) {
   // Check for creator question
   if (prompt.toLowerCase().includes('who') && (prompt.toLowerCase().includes('creator') || prompt.toLowerCase().includes('made') || prompt.toLowerCase().includes('owner') || prompt.toLowerCase().includes('developer'))) {
     addToConversationHistory(jid, 'user', prompt)
-    return `👑 *THE GREATEST DEVELOPER OF ALL TIME* 👑\n\n🔥 *BLAXK THE CODE FANATIC* 🔥\n\n⚡ This absolute legend crafted yours truly with pure genius, swag, and unmatched coding prowess 💻✨\n\n🚀 Follow the GOAT: @blaxk.thecodefanatic`
+    return `👑 *THE GREATEST DEVELOPER OF ALL TIME* 👑\n\n🔥 *BLAXK THE CODE FANATIC* 🔥\n\n⚡ This absolute legend crafted yours truly with pure genius, swag, and unmatched coding prowess 💻✨\n\n🚀 Follow the GOAT: @`
   }
   
   let chat = chatSessions.get(jid)
@@ -382,8 +382,8 @@ Keep WhatsApp responses concise but engaging. Sound human, not mechanical.`
     // For other errors, just clear session and return error
     chatSessions.delete(jid)
     const errorResponse = isServerError 
-      ? '⚠️ Gemini servers are busy. Try again in a moment! 🔄'
-      : '⚠️ Something went wrong with Gemini. Chat cleared - start fresh! 🔄'
+      ? '⚠️ Currently Unavailable, Sorry 🔄'
+      : '⚠️ Currently Unavailable, Sorry 🔄'
     return errorResponse
   }
 }
@@ -397,7 +397,7 @@ Keep WhatsApp responses concise but engaging. Sound human, not mechanical.`
 async function generateImage(prompt, numberOfImages = 1) {
   if (!ai) {
     if (!initializeGemini()) {
-      return { success: false, error: '❌ Gemini API Key not set.' }
+      return { success: false, error: '❌ API Key not set.' }
     }
   }
 
