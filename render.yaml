@@ -1,0 +1,31 @@
+services:
+  - type: web
+    name: blaxk-bot
+    env: node
+    plan: free
+    buildCommand: npm install
+    startCommand: npm run start:pm2
+    autoDeploy: true
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: SESSION_NAME
+        value: Blaxk_test
+      - key: AUTH_METHOD
+        value: pair
+      - key: FORCE_NON_INTERACTIVE
+        value: "true"
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: GEMINI_API_KEY_2
+        sync: false
+      - key: GEMINI_API_KEY_3
+        sync: false
+      - key: PAIR_NUMBER
+        sync: false
+      - key: OWNER_NUMBER
+        sync: false
+      - key: PREFIX
+        value: "."
+      - key: BOT_MODE
+        value: public

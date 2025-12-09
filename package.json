@@ -10,10 +10,13 @@
   "scripts": {
     "start": "node index.js",
     "dev": "node index.js",
+    "start:pm2": "pm2 start ecosystem.config.js --env production --no-daemon",
+    "start:pm2:daemon": "pm2 start ecosystem.config.js --env production",
     "pm2": "npx pm2 start ecosystem.config.js --env production",
-    "logs": "npx pm2 logs Blaxk_TCF",
-    "stop": "npx pm2 stop Blaxk_TCF",
-    "shutdown": "npx pm2 stop Blaxk_TCF && npx pm2 delete Blaxk_TCF && npx pm2 kill",
+    "logs": "npx pm2 logs blaxk-bot",
+    "stop": "npx pm2 stop blaxk-bot",
+    "restart": "npx pm2 restart blaxk-bot",
+    "shutdown": "npx pm2 stop blaxk-bot && npx pm2 delete blaxk-bot && npx pm2 kill",
     "clean": "rm -rf sessions auth_info_baileys 2>/dev/null || echo 'Cleaned up sessions'",
     "test:nsfw": "node scripts/nsfw-test.js"
   },
