@@ -764,8 +764,6 @@ async function connectToWhatsApp(usePairingCode, sessionPath) {
 │ ${config.prefix}savejid
 │ ${config.prefix}gemini
 │ ${config.prefix}alive
-│ ${config.prefix}clear
-│ ${config.prefix}spam
 │ ${config.prefix}wapresence (owner only)
 │ ${config.prefix}schedule (owner only)
 │ ${config.prefix}schedules (owner only)
@@ -774,7 +772,6 @@ async function connectToWhatsApp(usePairingCode, sessionPath) {
 │ ${config.prefix}restart (owner only)
 │ ${config.prefix}update (owner only)
 │ ${config.prefix}autostatus (owner only)
-│ ${config.prefix}pm2status (owner only)
 ╰──────────────────────╯
 
 ╭──────────────────────╮
@@ -782,7 +779,6 @@ async function connectToWhatsApp(usePairingCode, sessionPath) {
 ╰──────────────────────╯
 │ ${config.prefix}songs    - Download songs
 │ ${config.prefix}yts      - YouTube search
-│ ${config.prefix}ytvideo  - Download YouTube videos
 │ ${config.prefix}mediafire - Download from MediaFire
 │ ${config.prefix}apk      - Download Android APK files
 ╰──────────────────────╯
@@ -795,18 +791,6 @@ async function connectToWhatsApp(usePairingCode, sessionPath) {
 │ ${config.prefix}anime - Anime recommendations
 │    • ${config.prefix}anime top | seasonal | random | <query>
 │ ${config.prefix}emojimix - Mix two emojis into sticker
-╰──────────────────────╯
-
-╭──────────────────────╮
-│  ⚽ *SPORTS*           │
-╰──────────────────────╯
-│ ${config.prefix}football - Get football/soccer data
-│    • ${config.prefix}football fixtures - Get latest fixtures
-│    • ${config.prefix}football standings - Get standings
-│    • ${config.prefix}football teams - Get team info
-│    • ${config.prefix}football players - Get player info
-│    • ${config.prefix}football transfers - Get transfer news
-│    • ${config.prefix}football injuries - Get injury updates
 ╰──────────────────────╯
 
 ╭──────────────────────╮

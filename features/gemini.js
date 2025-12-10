@@ -395,19 +395,10 @@ Keep WhatsApp responses concise but engaging. Sound human, not mechanical.`
  * @returns {Promise<{success: boolean, images?: Array<Buffer>, error?: string}>}
  */
 async function generateImage(prompt, numberOfImages = 1) {
-  let imageAi = null
-  
-  try {
-    // Use primary GEMINI_API_KEY for image generation
-    const imageApiKey = process.env.GEMINI_API_KEY
-    if (!imageApiKey) {
-      return { success: false, error: '❌ API Key not set for image generation.' }
+  if (!ai) {
+    if (!initializeGemini()) {
+      return { success: false, error: '❌ API Key not set.' }
     }
-    
-    imageAi = new GoogleGenAI({ apiKey: imageApiKey })
-  } catch (err) {
-    console.error('❌ Failed to initialize image API:', err.message)
-    return { success: false, error: '❌ Failed to initialize image generation.' }
   }
 
   // Validate number of images
@@ -416,8 +407,8 @@ async function generateImage(prompt, numberOfImages = 1) {
   }
 
   try {
-    // Use Gemini's image generation with dedicated API client
-    const response = await imageAi.models.generateImages({
+    // Use Gemini's image generation
+    const response = await ai.models.generateImages({
       model: 'imagen-3.0-generate-001',
       prompt: prompt,
       config: {
