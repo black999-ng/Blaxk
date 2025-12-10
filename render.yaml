@@ -3,9 +3,8 @@ services:
     name: blaxk-bot
     env: node
     plan: free
-    buildCommand: npm install -g pm2 && npm install
-    startCommand: pm2 start ecosystem.config.js --no-daemon
-    autoDeploy: true
+    buildCommand: pnpm install --frozen-lockfile
+    startCommand: node index.js
     autoDeploy: true
     envVars:
       - key: NODE_ENV
