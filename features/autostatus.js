@@ -1,18 +1,6 @@
 const fs = require('fs');
 const path = require('path');
 
-// const channelInfo = {
-//     contextInfo: {
-//         forwardingScore: 1,
-//         isForwarded: true,
-//         forwardedNewsletterMessageInfo: {
-//             newsletterJid: '120363423276650635@newsletter',
-//             newsletterName: '""""""',
-//             serverMessageId: -1
-//         }
-//     }
-// };
-
 // Path to store auto status configuration
 const configPath = path.join(__dirname, '../data/autoStatus.json');
 
@@ -33,8 +21,7 @@ async function autoStatusCommand(sock, chatId, msg, args) {
         
         if (!msg.key.fromMe && !isOwner) {
             await sock.sendMessage(chatId, { 
-                text: '❌ This command can only be used by the owner!',
-                ...channelInfo
+                text: '❌ This command can only be used by the owner!'
             });
             return;
         }
@@ -47,8 +34,7 @@ async function autoStatusCommand(sock, chatId, msg, args) {
             const status = config.enabled ? 'enabled' : 'disabled';
             const reactStatus = config.reactOn ? 'enabled' : 'disabled';
             await sock.sendMessage(chatId, { 
-                text: `🔄 *Auto Status Settings*\n\n📱 *Auto Status View:* ${status}\n💫 *Status Reactions:* ${reactStatus}\n\n*Commands:*\n.autostatus on - Enable auto status view\n.autostatus off - Disable auto status view\n.autostatus react on - Enable status reactions\n.autostatus react off - Disable status reactions\n\nhttps://whatsapp.com/channel/0029Vb6vjvH1CYoRVJOHes3S`,
-                ...channelInfo
+                text: `🔄 *Auto Status Settings*\n\n📱 *Auto Status View:* ${status}\n💫 *Status Reactions:* ${reactStatus}\n\n*Commands:*\n.autostatus on - Enable auto status view\n.autostatus off - Disable auto status view\n.autostatus react on - Enable status reactions\n.autostatus react off - Disable status reactions`
             });
             return;
         }
@@ -60,22 +46,19 @@ async function autoStatusCommand(sock, chatId, msg, args) {
             config.enabled = true;
             fs.writeFileSync(configPath, JSON.stringify(config));
             await sock.sendMessage(chatId, { 
-                text: '✅ Auto status view has been enabled!\nBot will now automatically view all contact statuses.\n\nhttps://whatsapp.com/channel/0029Vb6vjvH1CYoRVJOHes3S',
-                ...channelInfo
+                text: '✅ Auto status view has been enabled!\nBot will now automatically view all contact statuses.'
             });
         } else if (command === 'off') {
             config.enabled = false;
             fs.writeFileSync(configPath, JSON.stringify(config));
             await sock.sendMessage(chatId, { 
-                text: '❌ Auto status view has been disabled!\nBot will no longer automatically view statuses.\n\nhttps://whatsapp.com/channel/0029Vb6vjvH1CYoRVJOHes3S',
-                ...channelInfo
+                text: '❌ Auto status view has been disabled!\nBot will no longer automatically view statuses.'
             });
         } else if (command === 'react') {
             // Handle react subcommand
             if (!args[1]) {
                 await sock.sendMessage(chatId, { 
-                    text: '❌ Please specify on/off for reactions!\nUse: .autostatus react on/off',
-                    ...channelInfo
+                    text: '❌ Please specify on/off for reactions!\nUse: .autostatus react on/off'
                 });
                 return;
             }
@@ -85,34 +68,29 @@ async function autoStatusCommand(sock, chatId, msg, args) {
                 config.reactOn = true;
                 fs.writeFileSync(configPath, JSON.stringify(config));
                 await sock.sendMessage(chatId, { 
-                    text: '💫 Status reactions have been enabled!\nBot will now react to status updates.\n\nhttps://whatsapp.com/channel/0029Vb6vjvH1CYoRVJOHes3S',
-                    ...channelInfo
+                    text: '💫 Status reactions have been enabled!\nBot will now react to status updates.'
                 });
             } else if (reactCommand === 'off') {
                 config.reactOn = false;
                 fs.writeFileSync(configPath, JSON.stringify(config));
                 await sock.sendMessage(chatId, { 
-                    text: '❌ Status reactions have been disabled!\nBot will no longer react to status updates.\n\nhttps://whatsapp.com/channel/0029Vb6vjvH1CYoRVJOHes3S',
-                    ...channelInfo
+                    text: '❌ Status reactions have been disabled!\nBot will no longer react to status updates.'
                 });
             } else {
                 await sock.sendMessage(chatId, { 
-                    text: '❌ Invalid reaction command! Use: .autostatus react on/off\n\nhttps://whatsapp.com/channel/0029Vb6vjvH1CYoRVJOHes3S',
-                    ...channelInfo
+                    text: '❌ Invalid reaction command! Use: .autostatus react on/off'
                 });
             }
         } else {
             await sock.sendMessage(chatId, { 
-                text: '❌ Invalid command! Use:\n.autostatus on/off - Enable/disable auto status view\n.autostatus react on/off - Enable/disable status reactions\n\nhttps://whatsapp.com/channel/0029Vb6vjvH1CYoRVJOHes3S',
-                ...channelInfo
+                text: '❌ Invalid command! Use:\n.autostatus on/off - Enable/disable auto status view\n.autostatus react on/off - Enable/disable status reactions'
             });
         }
 
     } catch (error) {
         console.error('Error in autostatus command:', error);
         await sock.sendMessage(chatId, { 
-            text: '❌ Error occurred while managing auto status!\n' + error.message + '\n\nhttps://whatsapp.com/channel/0029Vb6vjvH1CYoRVJOHes3S',
-            ...channelInfo
+            text: '❌ Error occurred while managing auto status!\n' + error.message
         });
     }
 }

@@ -7,18 +7,6 @@ const fs = require('fs');
 const path = require('path');
 const { createStickerBuffer } = require('./features/sticker');
 const gifFeature = require('./features/gif');
-// const CHANNEL_URL = 'https://whatsapp.com/channel/0029Vb6vjvH1CYoRVJOHes3S';
-// const CHANNEL_CONTEXT = {
-//   contextInfo: {
-//     forwardingScore: 1,
-//     isForwarded: true,
-//     forwardedNewsletterMessageInfo: {
-//       newsletterJid: '120363423276650635@newsletter',
-//       newsletterName: '',
-//       serverMessageId: -1
-//     }
-//   }
-// };
 const autoStatus = require('./features/autostatus');
 const { enableWelcome, disableWelcome, isWelcomeEnabled, sendWelcomeMessage, sendGoodbyeMessage } = require('./features/welcome');
 const gemini = require('./features/gemini');
@@ -806,7 +794,7 @@ async function connectToWhatsApp(usePairingCode, sessionPath) {
 │ ${config.prefix}revoke
 │ ${config.prefix}join
 │ ${config.prefix}ginfo
- | ${config.prefix}ghostping 
+│ ${config.prefix}ghostping
 ╰──────────────────────╯
 
 ╭──────────────────────╮
@@ -819,27 +807,36 @@ async function connectToWhatsApp(usePairingCode, sessionPath) {
 │ ${config.prefix}vv
 │ ${config.prefix}block
 │ ${config.prefix}del
-│ ${config.prefix}sticker
+│ ${config.prefix}sticker / ${config.prefix}s
+│ ${config.prefix}gif
 │ ${config.prefix}img
+│ ${config.prefix}image
+│ ${config.prefix}fancy
 │ ${config.prefix}getjid
 │ ${config.prefix}savejid
 │ ${config.prefix}gemini
+│ ${config.prefix}clear (clear chat history)
 │ ${config.prefix}alive
 │ ${config.prefix}wapresence (owner only)
 │ ${config.prefix}schedule (owner only)
 │ ${config.prefix}schedules (owner only)
 │ ${config.prefix}schedulecancel (owner only)
 │ ${config.prefix}uptime (owner only)
+│ ${config.prefix}pm2status (owner only)
 │ ${config.prefix}restart (owner only)
 │ ${config.prefix}update (owner only)
 │ ${config.prefix}autostatus (owner only)
+│ ${config.prefix}spam (owner only)
 ╰──────────────────────╯
 
 ╭──────────────────────╮
 │  📥 *DOWNLOADS*     │
 ╰──────────────────────╯
 │ ${config.prefix}mediafire - Download from MediaFire
-│ ${config.prefix}apk      - Download Android APK files
+│ ${config.prefix}apk - Download Android APK files
+│ ${config.prefix}song - Download songs from YouTube
+│ ${config.prefix}ytvideo - Download videos from YouTube
+│ ${config.prefix}yts - YouTube search results
 ╰──────────────────────╯
 
 ╭──────────────────────╮
@@ -850,6 +847,9 @@ async function connectToWhatsApp(usePairingCode, sessionPath) {
 │ ${config.prefix}anime - Anime recommendations
 │    • ${config.prefix}anime top | seasonal | random | <query>
 │ ${config.prefix}emojimix - Mix two emojis into sticker
+│ ${config.prefix}football - Football/soccer data
+│    • ${config.prefix}football help (12 subcommands available)
+│ ${config.prefix}fancy - Convert text to fancy Unicode styles
 ╰──────────────────────╯
 
 ╭──────────────────────╮
@@ -1160,10 +1160,10 @@ ${config.botMode === 'private' ? '🔒 Private Mode - Owner Only' : '🌐 Public
                         MEDIA_DOWNLOAD_TIMEOUT,
                         'Sticker media download'
                     );
-                    const mp4Gif = await gifFeature.convertVideoToGif(buffer, { maxSeconds: 8, watermarkText: CHANNEL_URL });
-                    await sock.sendMessage(chatId, { video: mp4Gif, gifPlayback: true, mimetype: 'video/mp4', caption: 'GIF', ...CHANNEL_CONTEXT });
+                    const mp4Gif = await gifFeature.convertVideoToGif(buffer, { maxSeconds: 8, watermarkText: '' });
+                    await sock.sendMessage(chatId, { video: mp4Gif, gifPlayback: true, mimetype: 'video/mp4', caption: 'GIF' });
                 } catch (e) {
-                    await sock.sendMessage(chatId, { text: `❌ Failed to create GIF: ${e.message}\n\n${CHANNEL_URL}`, ...CHANNEL_CONTEXT });
+                    await sock.sendMessage(chatId, { text: `❌ Failed to create GIF: ${e.message}` });
                 }
                 return;
             }
@@ -1173,9 +1173,9 @@ ${config.botMode === 'private' ? '🔒 Private Mode - Owner Only' : '🌐 Public
             await sock.sendMessage(chatId, { sticker: stickerBuffer });
                 return;
             }
-            await sock.sendMessage(chatId, { text: `❌ Reply to an image or short video\n\n${CHANNEL_URL}`, ...CHANNEL_CONTEXT });
+            await sock.sendMessage(chatId, { text: `❌ Reply to an image or short video` });
         } catch (error) {
-            await sock.sendMessage(chatId, { text: `❌ Failed to process media: ${error.message}\n\n${CHANNEL_URL}`, ...CHANNEL_CONTEXT });
+            await sock.sendMessage(chatId, { text: `❌ Failed to process media: ${error.message}` });
         }
     });
 
@@ -2044,8 +2044,8 @@ ${config.prefix}setvar <key> <value>
                 return;
             }
             if (primary === 'autostatus') {
-                const text = `📖 *${config.prefix}autostatus* (owner only)\n\nAutomatically views your contacts' Status updates and can react with 💚.\n\n*Usage:*\n- ${config.prefix}autostatus on\n- ${config.prefix}autostatus off\n- ${config.prefix}autostatus react on\n- ${config.prefix}autostatus react off\n\n*Notes:*\n- Owner only (matches OWNER_NUMBER)\n- Reactions use 💚 to avoid spam\n- Includes your channel card in messages`;
-                await sock.sendMessage(msg.key.remoteJid, { text, ...CHANNEL_CONTEXT });
+                const text = `📖 *${config.prefix}autostatus* (owner only)\n\nAutomatically views your contacts' Status updates and can react with 💚.\n\n*Usage:*\n- ${config.prefix}autostatus on\n- ${config.prefix}autostatus off\n- ${config.prefix}autostatus react on\n- ${config.prefix}autostatus react off\n\n*Notes:*\n- Owner only (matches OWNER_NUMBER)\n- Reactions use 💚 to avoid spam`;
+                await sock.sendMessage(msg.key.remoteJid, { text });
                 return;
             }
             if (primary === 'gemini') {
@@ -2100,6 +2100,29 @@ ${config.prefix}setvar <key> <value>
                      `📞 Creator: 2349019151146\n\n` +
                      `✨ Star the repo and share!`;
         await sock.sendMessage(msg.key.remoteJid, { text });
+    });
+
+    registerCommand('alive', 'Show bot alive status with custom messages', async (sock, msg, args) => {
+        const jid = msg.key.remoteJid;
+        const subCmd = (args[0] || '').toLowerCase();
+        
+        if (subCmd === 'reset') {
+            alive.clearAliveMessage();
+            await sock.sendMessage(jid, { text: '✅ Alive message reset to default!' });
+            return;
+        }
+        
+        if (subCmd && subCmd !== 'reset') {
+            // Set custom message (rejoin all args as the message)
+            const customMsg = args.join(' ');
+            alive.setAliveMessage(null, customMsg);
+            await sock.sendMessage(jid, { text: `✅ Alive message updated!\n\n${customMsg}` });
+            return;
+        }
+        
+        // Show current alive message
+        const msg_text = alive.getAliveMessage();
+        await sock.sendMessage(jid, { text: msg_text });
     });
 
     registerCommand('gemini', 'Gemini chatbot: .gemini on/off/clearchat/<prompt>', async (sock, msg, args) => {
@@ -2414,20 +2437,20 @@ ${config.prefix}setvar <key> <value>
     registerCommand('gif', 'Convert replied short video to GIF', async (sock, msg) => {
         const chatId = msg.key.remoteJid;
         const quotedMsg = getQuotedMessage(msg);
-        if (!quotedMsg) { await sock.sendMessage(chatId, { text: `💡 Reply to a short video with ${config.prefix}gif\n\n${CHANNEL_URL}`, ...CHANNEL_CONTEXT }); return; }
+        if (!quotedMsg) { await sock.sendMessage(chatId, { text: `💡 Reply to a short video with ${config.prefix}gif` }); return; }
         let q = quotedMsg;
         if (q.ephemeralMessage) q = q.ephemeralMessage.message;
-        if (!q.videoMessage) { await sock.sendMessage(chatId, { text: `❌ Reply to a short video\n\n${CHANNEL_URL}`, ...CHANNEL_CONTEXT }); return; }
+        if (!q.videoMessage) { await sock.sendMessage(chatId, { text: `❌ Reply to a short video` }); return; }
         try {
             const buffer = await withTimeout(
                 downloadMediaMessage({ message: quotedMsg }, 'buffer', {}, { logger: pino({ level: 'silent' }) }),
                 MEDIA_DOWNLOAD_TIMEOUT,
                 'GIF conversion media download'
             );
-            const mp4Gif = await gifFeature.convertVideoToGif(buffer, { maxSeconds: 8, watermarkText: CHANNEL_URL });
-            await sock.sendMessage(chatId, { video: mp4Gif, gifPlayback: true, mimetype: 'video/mp4', caption: 'GIF', ...CHANNEL_CONTEXT }, { quoted: msg });
+            const mp4Gif = await gifFeature.convertVideoToGif(buffer, { maxSeconds: 8, watermarkText: '' });
+            await sock.sendMessage(chatId, { video: mp4Gif, gifPlayback: true, mimetype: 'video/mp4', caption: 'GIF' }, { quoted: msg });
         } catch (e) {
-            await sock.sendMessage(chatId, { text: `❌ Failed to convert to GIF: ${e.message}\n\n${CHANNEL_URL}`, ...CHANNEL_CONTEXT });
+            await sock.sendMessage(chatId, { text: `❌ Failed to convert to GIF: ${e.message}` });
         }
     });
 
@@ -3274,7 +3297,7 @@ ${config.prefix}setvar <key> <value>
         const normalizedOwner = String(config.ownerNumber).replace(/[^0-9]/g, '');
         const normalizedSender = senderJid.split('@')[0].replace(/[^0-9]/g, '');
         const isOwner = normalizedSender === normalizedOwner || senderJid.includes(normalizedOwner) || msg.key.fromMe;
-        if (!isOwner) { await sock.sendMessage(msg.key.remoteJid, { text: `❌ Owner only.\n\n${CHANNEL_URL}` }); return; }
+        if (!isOwner) { await sock.sendMessage(msg.key.remoteJid, { text: `❌ Owner only.` }); return; }
         await autoStatus.autoStatusCommand(sock, msg.key.remoteJid, msg, args);
       });
     }
