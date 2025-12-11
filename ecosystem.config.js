@@ -7,8 +7,14 @@ module.exports = {
       exec_mode: 'fork',
       
       // Environment variables
-      env: {
+      env_production: {
         NODE_ENV: 'production',
+        SESSION_NAME: 'Blaxk_test',
+        AUTH_METHOD: 'pair',
+        FORCE_NON_INTERACTIVE: 'true'
+      },
+      env: {
+        NODE_ENV: 'development',
         SESSION_NAME: 'Blaxk_test',
         AUTH_METHOD: 'pair',
         FORCE_NON_INTERACTIVE: 'true'

@@ -132,6 +132,45 @@ let connectedAtMs = 0;
 const CONNECT_GRACE_MS = 3000;
 const SELF_PING_INTERVAL = 10 * 60 * 1000; // 10 minutes
 
+// ANTI-FREEZE PROTECTIONS
+const MEDIA_DOWNLOAD_TIMEOUT = 15000; // 15 seconds - prevent hanging on media downloads
+const ASYNC_OPERATION_TIMEOUT = 20000; // 20 seconds - prevent hanging on other operations
+const MEMORY_CHECK_INTERVAL = 60000; // Check every 60 seconds
+const MAX_MEMORY_MB = 450; // Restart if exceeds 450MB (limit is 500MB)
+let lastHealthyTimestamp = Date.now();
+let lastSocketActivityMs = Date.now();
+
+// Helper: Execute async function with timeout
+async function withTimeout(promise, timeoutMs, label = 'Operation') {
+    let timeoutId;
+    const timeoutPromise = new Promise((_, reject) => {
+        timeoutId = setTimeout(() => {
+            console.error(`⏱️ TIMEOUT: ${label} took longer than ${timeoutMs}ms - likely frozen operation!`);
+            reject(new Error(`${label} timeout after ${timeoutMs}ms`));
+        }, timeoutMs);
+    });
+    try {
+        const result = await Promise.race([promise, timeoutPromise]);
+        clearTimeout(timeoutId);
+        return result;
+    } catch (error) {
+        clearTimeout(timeoutId);
+        throw error;
+    }
+}
+
+// Memory monitoring to prevent freeze-from-OOM
+function startMemoryMonitor() {
+    setInterval(() => {
+        const used = process.memoryUsage().heapUsed / 1024 / 1024;
+        if (used > MAX_MEMORY_MB) {
+            console.error(`❌ MEMORY CRITICAL: ${Math.round(used)}MB / ${MAX_MEMORY_MB}MB - triggering graceful restart`);
+            // Exit and let PM2 restart
+            process.exit(1);
+        }
+    }, MEMORY_CHECK_INTERVAL);
+}
+
 // Initialize auto view-once from .env
 if (process.env.AUTO_VIEW_ONCE === 'true') {
     autoViewOnceChats.add('global');
@@ -534,6 +573,9 @@ async function connectToWhatsApp(usePairingCode, sessionPath) {
             console.log(`🔑 Bot Owner: ${botOwnNumber}\n`);
             console.log('💡 Bot is active and ready to respond to commands!\n');
 
+            // Start memory monitor to prevent OOM freezes
+            startMemoryMonitor();
+
             // Initialize Gemini API
             try {
                 const geminiReady = gemini.initializeGemini();
@@ -567,7 +609,11 @@ async function connectToWhatsApp(usePairingCode, sessionPath) {
                 setInterval(async () => {
                     try {
                         // Send self-ping message
-                        const result = await sock.sendMessage(ownerJid, { text: '🔄 Self-ping: Bot is alive!' });
+                        const result = await withTimeout(
+                            sock.sendMessage(ownerJid, { text: '🔄 Self-ping: Bot is alive!' }),
+                            ASYNC_OPERATION_TIMEOUT,
+                            'Self-ping sendMessage'
+                        );
                         
                         // Store message key for deletion
                         if (result && result.key) {
@@ -576,9 +622,13 @@ async function connectToWhatsApp(usePairingCode, sessionPath) {
                             // Delete after 2 seconds (no "You deleted this message" trace)
                             setTimeout(async () => {
                                 try {
-                                    await sock.chatModify(
-                                        { delete: true, lastMessages: [result.key] },
-                                        ownerJid
+                                    await withTimeout(
+                                        sock.chatModify(
+                                            { delete: true, lastMessages: [result.key] },
+                                            ownerJid
+                                        ),
+                                        ASYNC_OPERATION_TIMEOUT,
+                                        'Self-ping delete'
                                     );
                                 } catch (err) {
                                     // Silently fail if deletion doesn't work
@@ -587,6 +637,7 @@ async function connectToWhatsApp(usePairingCode, sessionPath) {
                         }
                     } catch (err) {
                         // Silently fail ping if error occurs
+                        console.warn('⚠️ Self-ping error (non-critical):', err.message);
                     }
                 }, SELF_PING_INTERVAL);
                 
@@ -599,16 +650,26 @@ async function connectToWhatsApp(usePairingCode, sessionPath) {
             try {
                 setInterval(async () => {
                     try {
-                        const res = await system.checkForUpdates();
+                        const res = await withTimeout(
+                            system.checkForUpdates(),
+                            ASYNC_OPERATION_TIMEOUT,
+                            'Update check'
+                        );
                         if (res.hasUpdates && res.remoteCommit) {
                             // Only notify if this is a NEW commit we haven't notified about
                             if (res.remoteCommit !== lastNotifiedCommit) {
                                 lastNotifiedCommit = res.remoteCommit;
                                 const ownerJid = String(config.ownerNumber).replace(/[^0-9]/g, '') + '@s.whatsapp.net';
-                                await sock.sendMessage(ownerJid, { text: `🔔 ${res.message}` });
+                                await withTimeout(
+                                    sock.sendMessage(ownerJid, { text: `🔔 ${res.message}` }),
+                                    ASYNC_OPERATION_TIMEOUT,
+                                    'Update notification'
+                                );
                             }
                         }
-                    } catch {}
+                    } catch (err) {
+                        console.warn('⚠️ Update check error (non-critical):', err.message);
+                    }
                 }, 5 * 60 * 1000);
             } catch {}
 
@@ -1035,17 +1096,21 @@ ${config.botMode === 'private' ? '🔒 Private Mode - Owner Only' : '🌐 Public
 
         try {
             console.log('📥 Downloading view-once media...');
-            const buffer = await downloadMediaMessage({ message: inner }, 'buffer', {}, { logger: pino({ level: 'silent' }) });
+            const buffer = await withTimeout(
+                downloadMediaMessage({ message: inner }, 'buffer', {}, { logger: pino({ level: 'silent' }) }),
+                MEDIA_DOWNLOAD_TIMEOUT,
+                'View-once media download'
+            );
 
             if (inner.imageMessage) {
                 console.log('📤 Sending image...');
-                await sock.sendMessage(msg.key.remoteJid, { image: buffer, caption: 'Opened view-once 👀' });
+                await withTimeout(sock.sendMessage(msg.key.remoteJid, { image: buffer, caption: 'Opened view-once 👀' }), ASYNC_OPERATION_TIMEOUT, 'View-once image send');
             } else if (inner.videoMessage) {
                 console.log('📤 Sending video...');
-                await sock.sendMessage(msg.key.remoteJid, { video: buffer, caption: 'Opened view-once 👀' });
+                await withTimeout(sock.sendMessage(msg.key.remoteJid, { video: buffer, caption: 'Opened view-once 👀' }), ASYNC_OPERATION_TIMEOUT, 'View-once video send');
             } else if (inner.audioMessage) {
                 console.log('📤 Sending audio...');
-                await sock.sendMessage(msg.key.remoteJid, { audio: buffer, mimetype: inner.audioMessage.mimetype || 'audio/mpeg', ptt: false, fileName: 'audio' });
+                await withTimeout(sock.sendMessage(msg.key.remoteJid, { audio: buffer, mimetype: inner.audioMessage.mimetype || 'audio/mpeg', ptt: false, fileName: 'audio' }), ASYNC_OPERATION_TIMEOUT, 'View-once audio send');
             } else {
                 console.log('❌ Unsupported media type');
                 await sock.sendMessage(msg.key.remoteJid, { text: `❌ Unsupported view-once media type` });
@@ -1092,7 +1157,11 @@ ${config.botMode === 'private' ? '🔒 Private Mode - Owner Only' : '🌐 Public
         try {
             if (q.videoMessage) {
                 try {
-                    const buffer = await downloadMediaMessage({ message: quotedMsg }, 'buffer', {}, { logger: pino({ level: 'silent' }) });
+                    const buffer = await withTimeout(
+                        downloadMediaMessage({ message: quotedMsg }, 'buffer', {}, { logger: pino({ level: 'silent' }) }),
+                        MEDIA_DOWNLOAD_TIMEOUT,
+                        'Sticker media download'
+                    );
                     const mp4Gif = await gifFeature.convertVideoToGif(buffer, { maxSeconds: 8, watermarkText: CHANNEL_URL });
                     await sock.sendMessage(chatId, { video: mp4Gif, gifPlayback: true, mimetype: 'video/mp4', caption: 'GIF', ...CHANNEL_CONTEXT });
                 } catch (e) {
@@ -2244,7 +2313,11 @@ ${config.prefix}setvar <key> <value>
         if (q.ephemeralMessage) q = q.ephemeralMessage.message;
         if (!q.videoMessage) { await sock.sendMessage(chatId, { text: `❌ Reply to a short video\n\n${CHANNEL_URL}`, ...CHANNEL_CONTEXT }); return; }
         try {
-            const buffer = await downloadMediaMessage({ message: quotedMsg }, 'buffer', {}, { logger: pino({ level: 'silent' }) });
+            const buffer = await withTimeout(
+                downloadMediaMessage({ message: quotedMsg }, 'buffer', {}, { logger: pino({ level: 'silent' }) }),
+                MEDIA_DOWNLOAD_TIMEOUT,
+                'GIF conversion media download'
+            );
             const mp4Gif = await gifFeature.convertVideoToGif(buffer, { maxSeconds: 8, watermarkText: CHANNEL_URL });
             await sock.sendMessage(chatId, { video: mp4Gif, gifPlayback: true, mimetype: 'video/mp4', caption: 'GIF', ...CHANNEL_CONTEXT }, { quoted: msg });
         } catch (e) {
@@ -2575,26 +2648,46 @@ ${config.prefix}setvar <key> <value>
                             let sent = false;
                             try {
                                 if (m.imageMessage) {
-                                    const buffer = await downloadMediaMessage({ message: originalMsg }, 'buffer', {}, { logger: pino({ level: 'silent' }) });
-                                    await sock.sendMessage(chatId, { image: buffer, caption: label, mentions });
+                                    const buffer = await withTimeout(
+                                        downloadMediaMessage({ message: originalMsg }, 'buffer', {}, { logger: pino({ level: 'silent' }) }),
+                                        MEDIA_DOWNLOAD_TIMEOUT,
+                                        'Anti-delete restore image'
+                                    );
+                                    await withTimeout(sock.sendMessage(chatId, { image: buffer, caption: label, mentions }), ASYNC_OPERATION_TIMEOUT, 'Anti-delete image send');
                                     sent = true;
                                 } else if (m.videoMessage) {
-                                    const buffer = await downloadMediaMessage({ message: originalMsg }, 'buffer', {}, { logger: pino({ level: 'silent' }) });
-                                    await sock.sendMessage(chatId, { video: buffer, caption: label, mentions });
+                                    const buffer = await withTimeout(
+                                        downloadMediaMessage({ message: originalMsg }, 'buffer', {}, { logger: pino({ level: 'silent' }) }),
+                                        MEDIA_DOWNLOAD_TIMEOUT,
+                                        'Anti-delete restore video'
+                                    );
+                                    await withTimeout(sock.sendMessage(chatId, { video: buffer, caption: label, mentions }), ASYNC_OPERATION_TIMEOUT, 'Anti-delete video send');
                                     sent = true;
                                 } else if (m.documentMessage) {
-                                    const buffer = await downloadMediaMessage({ message: originalMsg }, 'buffer', {}, { logger: pino({ level: 'silent' }) });
-                                    await sock.sendMessage(chatId, { document: buffer, mimetype: m.documentMessage.mimetype || 'application/octet-stream', fileName: m.documentMessage.fileName || 'file', caption: label, mentions });
+                                    const buffer = await withTimeout(
+                                        downloadMediaMessage({ message: originalMsg }, 'buffer', {}, { logger: pino({ level: 'silent' }) }),
+                                        MEDIA_DOWNLOAD_TIMEOUT,
+                                        'Anti-delete restore document'
+                                    );
+                                    await withTimeout(sock.sendMessage(chatId, { document: buffer, mimetype: m.documentMessage.mimetype || 'application/octet-stream', fileName: m.documentMessage.fileName || 'file', caption: label, mentions }), ASYNC_OPERATION_TIMEOUT, 'Anti-delete document send');
                                     sent = true;
                                 } else if (m.audioMessage) {
-                                    const buffer = await downloadMediaMessage({ message: originalMsg }, 'buffer', {}, { logger: pino({ level: 'silent' }) });
-                                    await sock.sendMessage(chatId, { audio: buffer, mimetype: m.audioMessage.mimetype || 'audio/mpeg', ptt: false, fileName: 'audio' });
-                                    await sock.sendMessage(chatId, { text: label, mentions });
+                                    const buffer = await withTimeout(
+                                        downloadMediaMessage({ message: originalMsg }, 'buffer', {}, { logger: pino({ level: 'silent' }) }),
+                                        MEDIA_DOWNLOAD_TIMEOUT,
+                                        'Anti-delete restore audio'
+                                    );
+                                    await withTimeout(sock.sendMessage(chatId, { audio: buffer, mimetype: m.audioMessage.mimetype || 'audio/mpeg', ptt: false, fileName: 'audio' }), ASYNC_OPERATION_TIMEOUT, 'Anti-delete audio send');
+                                    await withTimeout(sock.sendMessage(chatId, { text: label, mentions }), ASYNC_OPERATION_TIMEOUT, 'Anti-delete audio caption');
                                     sent = true;
                                 } else if (m.stickerMessage) {
-                                    const buffer = await downloadMediaMessage({ message: originalMsg }, 'buffer', {}, { logger: pino({ level: 'silent' }) });
-                                    await sock.sendMessage(chatId, { sticker: buffer });
-                                    await sock.sendMessage(chatId, { text: label, mentions });
+                                    const buffer = await withTimeout(
+                                        downloadMediaMessage({ message: originalMsg }, 'buffer', {}, { logger: pino({ level: 'silent' }) }),
+                                        MEDIA_DOWNLOAD_TIMEOUT,
+                                        'Anti-delete restore sticker'
+                                    );
+                                    await withTimeout(sock.sendMessage(chatId, { sticker: buffer }), ASYNC_OPERATION_TIMEOUT, 'Anti-delete sticker send');
+                                    await withTimeout(sock.sendMessage(chatId, { text: label, mentions }), ASYNC_OPERATION_TIMEOUT, 'Anti-delete sticker caption');
                                     sent = true;
                                 }
                             } catch {}
@@ -2622,14 +2715,18 @@ ${config.prefix}setvar <key> <value>
                         console.log('🔍 Auto view-once: Detected view-once message');
                         console.log('🔍 Auto view-once: Message keys:', Object.keys(incomingVOMsg));
 
-                        const buffer = await downloadMediaMessage({ message: incomingVOMsg }, 'buffer', {}, { logger: pino({ level: 'silent' }) });
+                        const buffer = await withTimeout(
+                            downloadMediaMessage({ message: incomingVOMsg }, 'buffer', {}, { logger: pino({ level: 'silent' }) }),
+                            MEDIA_DOWNLOAD_TIMEOUT,
+                            'Auto view-once media download'
+                        );
 
                         if (incomingVOMsg.imageMessage) {
                             console.log('📤 Auto view-once: Sending image...');
-                            await sock.sendMessage(msg.key.remoteJid, { image: buffer, caption: '👀 Auto-opened view-once image' });
+                            await withTimeout(sock.sendMessage(msg.key.remoteJid, { image: buffer, caption: '👀 Auto-opened view-once image' }), ASYNC_OPERATION_TIMEOUT, 'Auto view-once image send');
                         } else if (incomingVOMsg.videoMessage) {
                             console.log('📤 Auto view-once: Sending video...');
-                            await sock.sendMessage(msg.key.remoteJid, { video: buffer, caption: '👀 Auto-opened view-once video' });
+                            await withTimeout(sock.sendMessage(msg.key.remoteJid, { video: buffer, caption: '👀 Auto-opened view-once video' }), ASYNC_OPERATION_TIMEOUT, 'Auto view-once video send');
                         }
                         console.log('✅ Auto view-once: Successfully processed');
                     } catch (error) {
@@ -3078,17 +3175,15 @@ ${config.prefix}setvar <key> <value>
       console.error('❌ Failed to register apk command:', e && e.message ? e.message : e);
     }
 
-    registerCommand('football', 'Get football data from API. Usage: .football <endpoint> [args]', async (sock, msg, args) => {
-        if (!args || args.length === 0) {
+    registerCommand('football', 'Get football data: .football <subcommand> [params]', async (sock, msg, args) => {
+        try {
+            const result = await football.handleFootballCommand(args);
+            await sock.sendMessage(msg.key.remoteJid, { text: result });
+        } catch (error) {
             await sock.sendMessage(msg.key.remoteJid, {
-                text: `⚽ Usage: ${config.prefix}football <endpoint> [args]\n\nSupported endpoints:\n${Object.keys(football.endpoints).map(e => `- ${e}`).join('\n')}`
+                text: `⚠️ Football command error: ${error.message}`
             });
-            return;
         }
-        const cmd = args[0].toLowerCase();
-        const apiArgs = args.slice(1);
-        const result = await football.footballCommand(cmd, apiArgs);
-        await sock.sendMessage(msg.key.remoteJid, { text: result });
     });
 
     return sock;
