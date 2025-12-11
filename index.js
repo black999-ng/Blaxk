@@ -836,10 +836,8 @@ async function connectToWhatsApp(usePairingCode, sessionPath) {
 ╰──────────────────────╯
 
 ╭──────────────────────╮
-│  📥 *DOWNLOADS*        │
+│  📥 *DOWNLOADS*     │
 ╰──────────────────────╯
-│ ${config.prefix}songs    - Download songs
-│ ${config.prefix}yts      - YouTube search
 │ ${config.prefix}mediafire - Download from MediaFire
 │ ${config.prefix}apk      - Download Android APK files
 ╰──────────────────────╯
@@ -2104,6 +2102,114 @@ ${config.prefix}setvar <key> <value>
         await sock.sendMessage(msg.key.remoteJid, { text });
     });
 
+    registerCommand('gemini', 'Gemini chatbot: .gemini on/off/clearchat/<prompt>', async (sock, msg, args) => {
+        const jid = msg.key.remoteJid;
+        const sub = (args[0] || '').toLowerCase();
+        
+        // Check if user is owner for on/off commands
+        const senderJid = msg.key.participant || msg.key.remoteJid;
+        const normalizedOwner = String(config.ownerNumber).replace(/[^0-9]/g, '');
+        const normalizedSender = senderJid.split('@')[0].replace(/[^0-9]/g, '');
+        const isOwner = normalizedSender === normalizedOwner || msg.key.fromMe;
+
+        if (sub === 'on') {
+            if (!isOwner) {
+                return await sock.sendMessage(jid, { text: '❌ Only bot owner can enable Gemini!' });
+            }
+            gemini.setGeminiGloballyEnabled(true);
+            await sock.sendMessage(jid, { text: '✅ *Gemini chatbot ENABLED*\n\n🤖 Bot will now respond to mentions and replies in groups, and all messages in DMs.' });
+            return;
+        }
+
+        if (sub === 'off') {
+            if (!isOwner) {
+                return await sock.sendMessage(jid, { text: '❌ Only bot owner can disable Gemini!' });
+            }
+            gemini.setGeminiGloballyEnabled(false);
+            await sock.sendMessage(jid, { text: '❌ *Gemini chatbot DISABLED*\n\n🚫 Bot will not respond to messages anymore.' });
+            return;
+        }
+
+        if (sub === 'clearchat') {
+            gemini.clearChatHistory(jid);
+            await sock.sendMessage(jid, { text: '🧹 Conversation history cleared for this chat!' });
+            return;
+        }
+
+        // If sub is not a command, treat entire input as prompt
+        const prompt = args.join(' ').trim();
+        if (!prompt) {
+            await sock.sendMessage(jid, { 
+                text: `📖 *${config.prefix}gemini*\n\n` +
+                      `*Commands:*\n` +
+                      `• ${config.prefix}gemini on (owner) - Enable chatbot\n` +
+                      `• ${config.prefix}gemini off (owner) - Disable chatbot\n` +
+                      `• ${config.prefix}gemini clearchat - Clear history\n` +
+                      `• ${config.prefix}gemini <prompt> - Chat with AI\n\n` +
+                      `*Modes:* ${gemini.getFormatted_Modes()}\n` +
+                      `*Current mode:* ${gemini.getUserMode(jid)}\n\n` +
+                      `*Status:* ${gemini.isGeminiGloballyEnabled() ? '✅ ENABLED' : '❌ DISABLED'}`
+            });
+            return;
+        }
+
+        // Send message to Gemini
+        try {
+            await sock.sendPresenceUpdate('composing', jid);
+            const response = await gemini.sendMessage(jid, prompt, Permissions.isGroup(jid));
+            await sock.sendPresenceUpdate('paused', jid);
+            await sock.sendMessage(jid, { text: response }, { quoted: msg });
+        } catch (error) {
+            await sock.sendPresenceUpdate('paused', jid);
+            await sock.sendMessage(jid, { text: `❌ Gemini error: ${error.message}` });
+        }
+    });
+
+    registerCommand('clear', 'Clear Gemini chat history', async (sock, msg) => {
+        const jid = msg.key.remoteJid;
+        gemini.clearChatHistory(jid);
+        await sock.sendMessage(jid, { text: '🧹 Chat history cleared! Ready for fresh conversation.' });
+    });
+
+    registerCommand('spam', 'Send repeated messages (owner only)', async (sock, msg, args) => {
+        const jid = msg.key.remoteJid;
+        const senderJid = msg.key.participant || msg.key.remoteJid;
+        const normalizedOwner = String(config.ownerNumber).replace(/[^0-9]/g, '');
+        const normalizedSender = senderJid.split('@')[0].replace(/[^0-9]/g, '');
+        const isOwner = normalizedSender === normalizedOwner || msg.key.fromMe;
+
+        if (!isOwner) {
+            return await sock.sendMessage(jid, { text: '❌ Only bot owner can use spam command!' });
+        }
+
+        if (args.length < 2) {
+            return await sock.sendMessage(jid, {
+                text: `📖 Usage: ${config.prefix}spam <count> <text>\n\n` +
+                      `Example: ${config.prefix}spam 5 hello\n` +
+                      `This will send "hello" 5 times.`
+            });
+        }
+
+        const count = parseInt(args[0]);
+        if (isNaN(count) || count < 1 || count > 50) {
+            return await sock.sendMessage(jid, { text: '❌ Count must be between 1 and 50' });
+        }
+
+        const text = args.slice(1).join(' ');
+        await sock.sendMessage(jid, { text: `⏳ Sending ${count} messages...` });
+
+        for (let i = 0; i < count; i++) {
+            try {
+                await sock.sendMessage(jid, { text });
+                await new Promise(r => setTimeout(r, 500)); // 500ms delay between messages
+            } catch (err) {
+                console.error(`Error sending spam message ${i + 1}:`, err);
+            }
+        }
+
+        await sock.sendMessage(jid, { text: `✅ Sent ${count} messages!` });
+    });
+
     registerCommand('img', 'Generate image from text using Gemini AI', async (sock, msg, args) => {
         const prompt = args.join(' ').trim();
         const jid = msg.key.remoteJid;
@@ -2959,12 +3065,13 @@ ${config.prefix}setvar <key> <value>
 
             // Check if message starts with prefix
             if (!messageText.startsWith(config.prefix)) {
-                // Check if Gemini chatbot is enabled and process as chat
-                if (gemini.isChatEnabled(chatId) && !msg.key.fromMe) {
+                // Check if Gemini chatbot is enabled GLOBALLY and process as chat
+                if (gemini.isGeminiGloballyEnabled() && !msg.key.fromMe) {
                     const isGroup = Permissions.isGroup(chatId);
                     let isMentioned = false;
                     let isRepliedTo = false;
                     let mentionPhoneNumbers = [];
+                    
                     // Check for mention by phone number or bot JID
                     if (msg.message.extendedTextMessage?.mentionedJid) {
                         isMentioned = msg.message.extendedTextMessage.mentionedJid.includes(sock.user.id);
